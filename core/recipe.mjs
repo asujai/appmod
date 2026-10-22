@@ -55,17 +55,14 @@ export function loadRecipe(dir) {
 
   if (raw.schema !== 1) errors.push('schema must be 1')
   if (!raw.id) errors.push('id is required')
-  if (raw.app?.kind !== 'electron') errors.push('app.kind must be "electron" (the only supported kind for now)')
-
-  const exeRaw = forPlatform(raw.app?.exe)
-  if (!exeRaw) errors.push(`app.exe has no entry for platform ${PLATFORM}`)
-  const exe = exeRaw && resolveGlob(expand(exeRaw))
-  const portFileRaw = forPlatform(raw.app?.portFile)
-  const portFile = portFileRaw && expand(portFileRaw)
+  const kind = raw.app?.kind
+  if (!KINDS.includes(kind)) errors.push(`app.kind must be one of ${KINDS.join(', ')}`)
+  const app = resolveApp(kind, raw.app || {}, root, errors)
 
   const language = raw.language ? { ...raw.language } : null
   if (language) {
     if (!language.code) errors.push('language.code is required')
+    if (kind === 'android' && language.mode && language.mode !== 'app-locale') errors.push('android language.mode must be "app-locale"')
     const i18n = (language.i18n = { library: 'none', namespace: 'translation', mode: 'override', ...language.i18n })
     if (!['i18next', 'none'].includes(i18n.library)) errors.push('language.i18n.library must be "i18next" or "none"')
     if (!['override', 'add'].includes(i18n.mode)) errors.push('language.i18n.mode must be "override" or "add"')
@@ -78,6 +75,9 @@ export function loadRecipe(dir) {
     }
   }
 
+  if ((raw.features || []).length && (kind === 'android' || kind === 'native')) {
+    errors.push(`features (injected scripts) are not supported for kind "${kind}"; see skills/appmod/references/kinds.md`)
+  }
   const features = (raw.features || []).map(local)
   for (const f of features) if (!existsSync(f)) errors.push(`feature file missing: ${f}`)
 
@@ -88,7 +88,8 @@ export function loadRecipe(dir) {
     actions[name] = {
       // "node" means the node running appmod, so actions work without node on PATH.
       command: action.command === 'node' ? process.execPath : expand(action.command),
-      args: (action.args || []).map(a => expand(a.replace(/^\.\//, root + '/'))),
+      // "./x" is inside the recipe, "@appmod/x" inside this repository (shared actions).
+      args: (action.args || []).map(a => expand(a.replace(/^\.\//, root + '/').replace(/^@appmod\//, projectRoot + '/'))),
       cwd: root,
       timeoutMs: action.timeoutMs ?? 15000,
     }
@@ -101,15 +102,8 @@ export function loadRecipe(dir) {
     id: raw.id,
     name: raw.name || raw.id,
     tested: raw.tested || null,
-    app: {
-      exe,
-      exeName: basename(exe),
-      args: raw.app.args || [],
-      portFile,
-      urlPrefix: raw.app.pageFilter?.urlPrefix || '',
-      reloadIfLate: raw.app.reloadIfLate !== false,
-      reloadDelayMs: raw.app.reloadDelayMs ?? 1000,
-    },
+    kind,
+    app,
     language,
     features,
     actions,
@@ -119,6 +113,58 @@ export function loadRecipe(dir) {
     analysisDir: join(root, 'analysis'),
     sessionFile: join(root, '.appmod-session.json'),
   }
+}
+
+export const KINDS = ['electron', 'web', 'android', 'native']
+
+// Standard install locations, used when a web recipe says "browser": "auto".
+const BROWSERS = {
+  win32: [
+    '%PROGRAMFILES%/Google/Chrome/Application/chrome.exe',
+    '%PROGRAMFILES(X86)%/Google/Chrome/Application/chrome.exe',
+    '%LOCALAPPDATA%/Google/Chrome/Application/chrome.exe',
+    '%PROGRAMFILES(X86)%/Microsoft/Edge/Application/msedge.exe',
+    '%PROGRAMFILES%/Microsoft/Edge/Application/msedge.exe',
+  ],
+  darwin: ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'],
+  linux: ['/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/microsoft-edge'],
+}
+
+export function findBrowser() {
+  return (BROWSERS[PLATFORM] || []).map(expand).find(p => existsSync(p)) || null
+}
+
+// Per-kind app settings. Every kind gets: exe (what to start, if anything), args, env.
+function resolveApp(kind, a, root, errors) {
+  const env = Object.fromEntries(Object.entries(a.env || {}).map(([k, v]) => [k, expand(String(v))]))
+  const base = { args: a.args || [], env, urlPrefix: a.pageFilter?.urlPrefix || '', reloadIfLate: a.reloadIfLate !== false, reloadDelayMs: a.reloadDelayMs ?? 1000 }
+  if (kind === 'electron' || kind === 'native') {
+    const exeRaw = forPlatform(a.exe)
+    if (!exeRaw) errors.push(`app.exe has no entry for platform ${PLATFORM}`)
+    const exe = exeRaw ? resolveGlob(expand(exeRaw)) : ''
+    const portFileRaw = forPlatform(a.portFile)
+    const install = (a.install || []).map(i => ({ from: isAbsolute(i.from) ? i.from : join(root, i.from), to: resolveGlob(expand(forPlatform(i.to) || '')) }))
+    for (const i of install) {
+      if (!existsSync(i.from)) errors.push(`install source missing: ${i.from}`)
+      if (!i.to) errors.push(`install target has no entry for platform ${PLATFORM}`)
+    }
+    if (install.length && kind === 'electron') errors.push('install is for kind "native"; electron recipes change the app at runtime')
+    return { ...base, exe, exeName: exe ? basename(exe) : '', portFile: portFileRaw && expand(portFileRaw), install }
+  }
+  if (kind === 'web') {
+    const browserRaw = forPlatform(a.browser) || 'auto'
+    const exe = browserRaw === 'auto' ? findBrowser() : resolveGlob(expand(browserRaw))
+    if (!exe) errors.push('no Chrome or Edge found; set app.browser to a Chromium-based browser path')
+    if (!a.startUrl) errors.push('web recipes need app.startUrl')
+    if (!a.matches?.length) errors.push('web recipes need app.matches (URL patterns like "https://example.com/*")')
+    const profile = expand(a.profile || join(process.env.LOCALAPPDATA || join(homedir(), '.local', 'share'), 'appmod', 'profiles', basename(root)))
+    return { ...base, exe: exe || '', exeName: exe ? basename(exe) : '', startUrl: a.startUrl, matches: a.matches || [], profile, urlPrefix: base.urlPrefix || new URL(a.startUrl || 'about:blank').origin }
+  }
+  if (kind === 'android') {
+    if (!a.package) errors.push('android recipes need app.package (e.g. "com.example.app")')
+    return { ...base, package: a.package, device: a.device || process.env.ANDROID_SERIAL || null, adb: expand(a.adb || 'adb') }
+  }
+  return base
 }
 
 export const projectRoot = join(dirname(fileURLToPath(import.meta.url)), '..')

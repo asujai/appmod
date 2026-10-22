@@ -36,6 +36,8 @@ export async function openLive(recipe, { match = '' } = {}) {
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'png' }, sessionId)
       writeFileSync(file, Buffer.from(data, 'base64'))
     },
+    // Closes the whole app/browser that launch started (graceful, like the user quitting it).
+    quit: () => cdp.send('Browser.close').catch(() => {}),
     close: () => cdp.close(),
   }
 }

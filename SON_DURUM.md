@@ -1,8 +1,8 @@
 # Son Durum
 
-- **Durum:** Yayında (https://github.com/asujai/appmod). appmod artık REA'ya ihtiyaç duymadan Electron uygulamalarını analiz ediyor, gözlüyor ve değiştiriyor.
-- **Son iş:** analyze / search / asar / live komutları, skill analiz ve canlı gözlem rehberleri (2026-10-22 18:06, Claude). Önceki: Discord çeviri tarifi (Qoder).
-- **Doğrulama:** Testler 15/15; gerçek Qoder'da analyze, search ve live; Discord'da analyze.
-- **Sorunlar:** launch sonrası oturum dosyası uçtan uca denenmedi (uygulamalar kullanıcıda açıktı). Yerel ikili/oyun/Android kapsam dışı. Discord çevirisi resmî olmayan Google uç noktasına bağlı.
-- **Sonraki adım:** Uygulamalar kapalıyken launch + live testi (Claude veya Antigravity).
-- **Son commit:** d794566
+- **Durum:** Yayında (https://github.com/asujai/appmod). Dört tarif türü: electron, web, android, native. Electron ve web'i kendisi okur; yerel/.NET/APK kodu için REA'yı gerektiğinde çağırır.
+- **Son iş:** Tarif türleri, REA köprüsü, Hacker News web tarifi, tür şablonları (2026-10-22 18:22, Claude).
+- **Doğrulama:** Testler 20/20; Hacker News uçtan uca; TV kutusunda Android analizi; REA köprüsü yerel uygulamada.
+- **Sorunlar:** Android dil ayarlama ve native launch gerçek hedefte denenmedi; Qoder/Discord launch regresyonu bekliyor (uygulamalar kullanımdaydı).
+- **Sonraki adım:** Yukarıdaki gerçek hedef testleri (Claude veya Antigravity).
+- **Son commit:** (bu commit)

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseTranslation, normalizeTarget } from '../recipes/discord/features/translate.mjs'
+import { parseTranslation, normalizeTarget } from '../shared/actions/translate.mjs'
 
 test('parses a Google Translate response', () => {
   const data = [[['Merhaba, bugün nasılsın?', 'Hello, how are you today?', null, null, 3]], null, 'en']

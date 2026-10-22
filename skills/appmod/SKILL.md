@@ -1,12 +1,13 @@
 ---
 name: appmod
-description: Add a language to an installed desktop app's interface, or add a small personal feature (a button, a shortcut, a hook to a local script), without modifying the app's files. Use when the user asks to translate an app's UI into their language, add a missing language, or add/change something in an app's interface for personal use. Electron apps are supported; check other kinds with references/new-app.md first.
+description: Add a language or a small personal feature (a button, a shortcut, a hook to a local script) to an app the user already uses, without modifying the app's files. Covers desktop Electron apps, websites, Android apps over ADB and other desktop apps through their official routes. Use when the user asks to translate an app or site into their language, add a missing language, or add/change something in an app's interface for personal use.
 ---
 
 # appmod
 
-You change how an installed app looks and behaves for one user, at launch, without editing its
-files. Every app gets a **recipe** folder (`recipes/<id>/`) that holds everything: how to start
+You change how an app or site looks and behaves for one user, without editing its files. Each
+recipe has a kind: `electron`, `web`, `android` or `native`; what is possible differs per kind
+(references/kinds.md). Every app gets a **recipe** folder (`recipes/<id>/`) that holds everything: how to start
 the app, the language pack, feature scripts and the pitfalls found on the way. The next person
 asking for the same app reuses the recipe instead of starting over.
 
@@ -29,15 +30,18 @@ Project root: the folder containing `bin/appmod.mjs`. Commands below run from th
 
 ## Workflow
 
-1. **Identify the app.** Find what is actually installed and running; do not guess from a name
-   (two apps can share one). Record exe path, version and whether it is Electron
-   (`resources/app.asar` or `resources/app/` next to the exe). Non-Electron: read
-   references/new-app.md and tell the user what is and isn't possible before doing anything.
+1. **Identify the target and its kind.** Find what is actually installed and running; do not
+   guess from a name (two apps can share one). Record path or package, version, and the kind:
+   Electron (`resources/app.asar` next to the exe), a website, an Android app, or another
+   desktop app (references/new-app.md). Tell the user what that kind allows before starting
+   (references/kinds.md): Android and native apps get no injected buttons.
 2. **Reuse or create a recipe.** `node bin/appmod.mjs list`. If `recipes/<id>` exists, read its
    `NOTES.md` first and compare `tested.version` with the installed version. Otherwise
-   `node bin/appmod.mjs new <id>` and fill `app` in `recipe.json` (format: docs/recipe-format.md).
-3. **Analyze before touching anything.** `node bin/appmod.mjs analyze <id>` reads the shipped
-   code without running it: fuses (is the asar hash-checked?), i18n library, locale files the
+   `node bin/appmod.mjs new <id> --kind <kind>` and fill `app` in `recipe.json`
+   (format: docs/recipe-format.md).
+3. **Analyze before touching anything.** `node bin/appmod.mjs analyze <id>` reads the target
+   without running it (Android: shipped languages over ADB; native: REA; web: use `live`).
+   For Electron it reports fuses (is the asar hash-checked?), i18n library, locale files the
    app already ships, env vars and switches (plugin/dev folders, `--lang`), the app's own
    extension system, IPC, obfuscation. Read `analysis/report.md`, then follow single questions
    with `search` and `asar cat`. An official route found here (a shipped language, `--lang`,
@@ -74,8 +78,12 @@ Project root: the folder containing `bin/appmod.mjs`. Commands below run from th
 | A value the code hides (obfuscated) | `live <id> eval <expression>` |
 | Proof for the user | `live <id> shot <file.png>` |
 
-Native code (C/C++, Rust, Go, .NET, games, IL2CPP, firmware, Android) is out of scope: appmod
-reads Electron/JavaScript apps only. Say so instead of guessing.
+| Web: same changes in the everyday browser | `extension <id>` |
+| Android/native: undo | `reset <id>` |
+| Native, .NET or APK code | `analyze <id>` (calls REA) or `rea <command> ...` |
+
+appmod reads Electron code itself and hands native, .NET and APK code to REA. Games with
+anti-cheat or DRM, and anything that unlocks paid features, are off limits for every kind.
 
 ## When stuck
 

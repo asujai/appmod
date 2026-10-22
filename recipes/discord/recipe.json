@@ -20,6 +20,6 @@
   },
   "features": ["features/translate.js"],
   "actions": {
-    "translate": { "command": "node", "args": ["./features/translate.mjs"], "timeoutMs": 20000 }
+    "translate": { "command": "node", "args": ["@appmod/shared/actions/translate.mjs"], "timeoutMs": 20000 }
   }
 }

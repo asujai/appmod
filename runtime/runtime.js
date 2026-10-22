@@ -7,6 +7,7 @@
   const CONFIG = __APPMOD_CONFIG__
   const PACK = __APPMOD_PACK__ // flat { "a.b.c": "translated" } for the i18n library
   const TEXT = __APPMOD_TEXT__ // exact on-screen English text -> translated, for strings outside i18n
+  if (CONFIG.allow && !CONFIG.allow.some(source => new RegExp(source).test(location.href))) return
 
   const listeners = { ready: [] }
   const appmod = {

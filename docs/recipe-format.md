@@ -63,3 +63,36 @@ what is initialized afterwards, so language packs normally keep `reloadIfLate: t
 
 Actions get the page's input as JSON on stdin and answer on stdout (JSON or text). A non-zero
 exit code rejects the page's promise with stderr as the message.
+
+## Other kinds
+
+`app.kind` is `electron` (above), `web`, `android` or `native`. What each can do:
+`skills/appmod/references/kinds.md`. `node bin/appmod.mjs new <id> --kind <kind>` starts from
+the matching template.
+
+```jsonc
+// web
+"app": {
+  "kind": "web",
+  "browser": "auto",                         // or a Chromium-based browser path per platform
+  "startUrl": "https://news.ycombinator.com/",
+  "matches": ["https://news.ycombinator.com/*"],   // Chrome match patterns; the runtime runs nowhere else
+  "profile": "%LOCALAPPDATA%/appmod/profiles/hn"   // optional; default per recipe
+}
+
+// android (no features; language = official per-app language, Android 13+)
+"app": { "kind": "android", "package": "com.example.app", "device": "192.168.1.13:5555", "adb": "adb" },
+"language": { "code": "tr", "mode": "app-locale" }
+
+// native (no features; official routes only)
+"app": {
+  "kind": "native",
+  "exe": { "win32": "%PROGRAMFILES%/App/App.exe" },
+  "args": ["--lang=tr"],
+  "env": { "APP_PLUGIN_DIR": "%APPDATA%/App/plugins" },          // for the launched process only
+  "install": [{ "from": "files/tr.xml", "to": { "win32": "%APPDATA%/App/lang/tr.xml" } }]
+}
+```
+
+`env` also works for `electron` recipes. `install` targets inside the app's folder or system
+folders need `launch --allow-app-dir`; `reset` removes installed files and restores backups.

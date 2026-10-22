@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "template",
+  "name": "App Name",
+  "tested": null,
+  "app": {
+    "kind": "android",
+    "package": "com.example.app",
+    "device": null,
+    "adb": "adb"
+  },
+  "language": { "code": "xx", "name": "Language name", "mode": "app-locale" }
+}

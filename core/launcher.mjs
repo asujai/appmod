@@ -20,6 +20,18 @@ export function makeLogger(file) {
   }
 }
 
+// Chrome match pattern ("https://*.example.com/*") -> regex source.
+// Host wildcards stay inside the host, so "?https://a.example.com" in a query cannot match.
+const escapeRe = s => s.replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+export function matchToRegex(pattern) {
+  const m = /^(\*|https?|file):\/\/([^/]*)(\/.*)$/.exec(pattern)
+  if (!m) throw new Error(`invalid match pattern: ${pattern}`)
+  const scheme = m[1] === '*' ? 'https?' : m[1]
+  const host = m[2] === '*' ? '[^/]*' : m[2].startsWith('*.') ? `(?:[^/]*\\.)?${escapeRe(m[2].slice(2))}` : escapeRe(m[2])
+  const path = m[3].split('*').map(escapeRe).join('.*')
+  return `^${scheme}://${host}${path}$`
+}
+
 const readJson = file => (file ? JSON.parse(readFileSync(file, 'utf8')) : {})
 
 // Builds the script injected into each page: runtime + language data + feature scripts.
@@ -29,6 +41,8 @@ export function buildBundle(recipe, { withLanguage = true, withFeatures = true }
     recipe: recipe.id,
     language: language && { code: language.code, name: language.name, i18n: language.i18n },
     maxTextLength: recipe.raw.maxTextLength,
+    // Web recipes run only on their own sites, even if the tab navigates elsewhere.
+    allow: recipe.kind === 'web' ? recipe.app.matches.map(matchToRegex) : null,
   }
   const pack = language ? readJson(language.pack) : {}
   const text = language ? readJson(language.text) : {}
@@ -124,15 +138,21 @@ function runAction(action, input) {
 export async function launch(recipe, { bundle, onPage, extraArgs = [], force = false, log = makeLogger(recipe.logFile) } = {}) {
   const { app } = recipe
   if (!existsSync(app.exe)) throw new Error(`app not found: ${app.exe}`)
-  if (!force && isRunning(app.exeName)) {
+  // A web recipe gets its own browser profile, so the user's normal browser may keep running.
+  if (recipe.kind === 'electron' && !force && isRunning(app.exeName)) {
     throw new Error(`${app.exeName} is already running. Quit it completely (also from the tray), then try again.`)
   }
   const source = bundle ?? buildBundle(recipe)
   const port = app.portFile ? 0 : await freePort()
   const startedAt = Date.now()
-  const child = spawn(app.exe, [`--remote-debugging-port=${port}`, ...app.args, ...extraArgs], {
+  const argv =
+    recipe.kind === 'web'
+      ? [`--remote-debugging-port=${port}`, `--user-data-dir=${app.profile}`, '--no-first-run', '--no-default-browser-check', ...app.args, ...extraArgs, app.startUrl]
+      : [`--remote-debugging-port=${port}`, ...app.args, ...extraArgs]
+  const child = spawn(app.exe, argv, {
     detached: true,
     stdio: 'ignore',
+    env: { ...process.env, ...app.env },
   })
   child.unref()
   log(`started ${app.exe}`)

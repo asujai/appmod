@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "id": "template",
+  "name": "App Name",
+  "tested": null,
+  "app": {
+    "kind": "native",
+    "exe": { "win32": "%PROGRAMFILES%/AppName/AppName.exe" },
+    "args": [],
+    "env": {},
+    "install": [
+      { "from": "files/example.txt", "to": { "win32": "%APPDATA%/AppName/example.txt" } }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "id": "template",
+  "name": "Site Name",
+  "tested": null,
+  "app": {
+    "kind": "web",
+    "browser": "auto",
+    "startUrl": "https://example.com/",
+    "matches": ["https://example.com/*"],
+    "reloadIfLate": true
+  },
+  "language": { "code": "xx", "name": "Language name", "i18n": { "library": "none" } },
+  "features": ["features/example.js"],
+  "actions": {}
+}
