@@ -5,4 +5,4 @@
 - **Doğrulama:** Testler 15/15; gerçek Qoder'da analyze, search ve live; Discord'da analyze.
 - **Sorunlar:** launch sonrası oturum dosyası uçtan uca denenmedi (uygulamalar kullanıcıda açıktı). Yerel ikili/oyun/Android kapsam dışı. Discord çevirisi resmî olmayan Google uç noktasına bağlı.
 - **Sonraki adım:** Uygulamalar kapalıyken launch + live testi (Claude veya Antigravity).
-- **Son commit:** (bu commit)
+- **Son commit:** d794566
