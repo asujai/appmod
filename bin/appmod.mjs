@@ -7,6 +7,8 @@ import { loadRecipe, projectRoot, templateDir } from '../core/recipe.mjs'
 import { launch, buildBundle, makeLogger } from '../core/launcher.mjs'
 import { evaluate } from '../core/cdp.mjs'
 import { samePlaceholders } from '../core/placeholders.mjs'
+import { analyzeApp, reportMarkdown, searchApp, findAppSource } from '../core/analyze.mjs'
+import { openLive, liveScripts } from '../core/live.mjs'
 
 const HELP = `appmod: personal language packs and small features for installed desktop apps
 
@@ -14,6 +16,29 @@ Usage: node bin/appmod.mjs <command> [recipe] [options]
 
   list                       recipes in ./recipes
   new <id>                   create recipes/<id> from the template
+
+ Understand the app (static, the app does not need to run):
+  analyze <recipe>           fuses, code location, i18n libraries, locale files, env vars, switches,
+                             plugin paths, IPC, obfuscation -> <recipe>/analysis/report.{md,json}
+        --exe <path>         analyze an exe directly (no recipe needed; prints the report)
+  search <recipe> <regex>    search the app's code with context (--files <part> --context <n> --max <n>
+                             --modules to include node_modules)
+  asar <recipe> list [part]  list files in the app's code
+  asar <recipe> cat <path>   print one file from the app's code
+  asar <recipe> extract      copy the app's code to <recipe>/analysis/source/ (read-only copy)
+
+ Observe and drive the running app (after launch):
+  live <recipe> pages        windows the app has open
+  live <recipe> eval <js>    evaluate an expression in the app window (awaits promises)
+  live <recipe> text [css]   visible text of the page or of one element
+  live <recipe> html <css>   outerHTML of one element
+  live <recipe> anchors [css] elements with stable attributes (for feature selectors)
+  live <recipe> click <css>  click one element
+  live <recipe> shot <file>  screenshot of the window (PNG)
+  live <recipe> errors       appmod runtime errors in the window
+        --page <part>        pick the window whose URL contains <part>
+
+ Apply changes:
   inspect <recipe>           start the app, detect its i18n setup, dump its strings to <recipe>/inspect/
         --wait <s>           seconds to let the UI settle before reading (default 8)
   check <recipe>             compare the language pack with the dumped strings (keys, placeholders)
@@ -67,6 +92,85 @@ const commands = {
     const file = join(dest, 'recipe.json')
     writeFileSync(file, readFileSync(file, 'utf8').replace(/"id": "[^"]*"/, `"id": "${target}"`))
     console.log(`created ${dest}\nnext: fill app.exe in recipe.json, then run: node bin/appmod.mjs inspect ${target}`)
+  },
+
+  analyze() {
+    const exe = target === '--exe' ? rest[0] : option('exe')
+    if (exe && exe !== true) {
+      console.log(reportMarkdown(analyzeApp(resolve(exe))))
+      return
+    }
+    const recipe = loadRecipe(recipeDir(target))
+    const report = analyzeApp(recipe.app.exe)
+    mkdirSync(recipe.analysisDir, { recursive: true })
+    writeJson(join(recipe.analysisDir, 'report.json'), report)
+    const md = reportMarkdown(report)
+    writeFileSync(join(recipe.analysisDir, 'report.md'), md)
+    console.log(md)
+    console.log(`written to ${recipe.analysisDir}`)
+  },
+
+  search() {
+    const recipe = loadRecipe(recipeDir(target))
+    if (!rest[0] || rest[0].startsWith('--')) fail('search <recipe> <regex>')
+    const { hits, truncated } = searchApp(recipe.app.exe, rest[0], {
+      files: option('files', ''),
+      context: Number(option('context', 120)),
+      max: Number(option('max', 40)),
+      includeModules: flag('modules'),
+    })
+    for (const h of hits) console.log(`${h.path}@${h.offset}: ${h.snippet}\n`)
+    console.log(`${hits.length} hit(s)${truncated ? ' (stopped at --max)' : ''}`)
+  },
+
+  asar() {
+    const recipe = loadRecipe(recipeDir(target))
+    const { source } = findAppSource(recipe.app.exe)
+    if (!source) fail('app code not found next to the exe')
+    const [sub, arg] = rest
+    if (sub === 'list') {
+      for (const f of source.list()) if (!arg || f.path.includes(arg)) console.log(`${String(f.size).padStart(10)}  ${f.path}${f.unpacked ? '  (unpacked)' : ''}`)
+    } else if (sub === 'cat') {
+      if (!arg) fail('asar <recipe> cat <path>')
+      process.stdout.write(source.read(arg))
+    } else if (sub === 'extract') {
+      const dest = join(recipe.analysisDir, 'source')
+      let n = 0
+      for (const f of source.list()) {
+        if (!flag('modules') && f.path.includes('node_modules/')) continue
+        const out = join(dest, f.path)
+        mkdirSync(join(out, '..'), { recursive: true })
+        writeFileSync(out, source.read(f.path))
+        n++
+      }
+      console.log(`${n} files copied to ${dest} (node_modules skipped unless --modules)`)
+    } else fail('asar <recipe> list|cat|extract')
+  },
+
+  async live() {
+    const recipe = loadRecipe(recipeDir(target))
+    const [sub, arg] = rest.filter((a, i) => !a.startsWith('--') && !rest[i - 1]?.startsWith('--'))
+    const session = await openLive(recipe, { match: option('page', '') }).catch(error => fail(error.message))
+    try {
+      if (sub === 'pages') {
+        for (const p of session.pages) console.log(`${p === session.target ? '*' : ' '} ${p.title} | ${p.url}`)
+      } else if (sub === 'shot') {
+        const file = resolve(arg || join(recipe.analysisDir, 'shot.png'))
+        mkdirSync(join(file, '..'), { recursive: true })
+        await session.screenshot(file)
+        console.log(file)
+      } else if (sub === 'eval') {
+        if (!arg) fail('live <recipe> eval <expression>')
+        console.log(JSON.stringify(await session.eval(arg), null, 1))
+      } else if (liveScripts[sub]) {
+        if ((sub === 'html' || sub === 'click' || sub === 'count') && !arg) fail(`live <recipe> ${sub} <css>`)
+        const value = await session.eval(liveScripts[sub](arg))
+        console.log(typeof value === 'string' ? value : JSON.stringify(value, null, 1))
+      } else fail('live <recipe> pages|eval|text|html|anchors|click|shot|errors')
+    } finally {
+      session.close()
+    }
+    process.exit(0)
   },
 
   async inspect() {

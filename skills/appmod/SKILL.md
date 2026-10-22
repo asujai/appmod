@@ -36,23 +36,46 @@ Project root: the folder containing `bin/appmod.mjs`. Commands below run from th
 2. **Reuse or create a recipe.** `node bin/appmod.mjs list`. If `recipes/<id>` exists, read its
    `NOTES.md` first and compare `tested.version` with the installed version. Otherwise
    `node bin/appmod.mjs new <id>` and fill `app` in `recipe.json` (format: docs/recipe-format.md).
-3. **Inspect.** The user must quit the app completely first (including the tray). Run
+3. **Analyze before touching anything.** `node bin/appmod.mjs analyze <id>` reads the shipped
+   code without running it: fuses (is the asar hash-checked?), i18n library, locale files the
+   app already ships, env vars and switches (plugin/dev folders, `--lang`), the app's own
+   extension system, IPC, obfuscation. Read `analysis/report.md`, then follow single questions
+   with `search` and `asar cat`. An official route found here (a shipped language, `--lang`,
+   a plugin folder) beats injection. How to read the evidence: references/analysis.md.
+4. **Inspect.** The user must quit the app completely first (including the tray). Run
    `node bin/appmod.mjs inspect <id>`. Read `inspect/page-*.json`: which i18n library was found,
    which languages/namespaces exist, and how many strings were dumped. Details and failure
    cases: references/electron.md.
-4. **Language** (if asked): follow references/language.md: choose `override` or `add`, translate
+5. **Language** (if asked): follow references/language.md: choose `override` or `add`, translate
    the dumped strings in chunks (sub-agents for large packs), keep keys and placeholders, then
    `node bin/appmod.mjs check <id>` until it prints `ok`.
-5. **Features** (if asked): follow references/features.md: find stable selectors in the live
-   app, write a feature script with the `appmod` API (docs/feature-api.md), and declare
+6. **Features** (if asked): follow references/features.md: find stable selectors in the live
+   app (`live <id> anchors`, `live <id> html <css>`), write a feature script with the `appmod` API (docs/feature-api.md), and declare
    `actions` for anything that needs to run outside the page.
-6. **Launch and verify.** Quit the app, run `node bin/appmod.mjs launch <id>`, and check in the
-   real window (screenshots: main screen, settings, one dialog, plus each new feature). Read
-   `recipes/<id>/appmod.log` and `window.__appmod.errors`. Not verified on screen = not done.
-7. **Shortcut.** `node bin/appmod.mjs shortcut <id>` (Windows) creates a desktop shortcut. The
+7. **Launch and verify.** Quit the app, run `node bin/appmod.mjs launch <id>`, and check in the
+   real window with `live`: `live <id> shot`, `live <id> text`, `live <id> errors`, and for a
+   feature `live <id> click <css>` then `shot` again (references/live.md). Check main screen,
+   settings, one dialog and each new feature, plus `recipes/<id>/appmod.log`. Not verified on
+   screen = not done.
+8. **Shortcut.** `node bin/appmod.mjs shortcut <id>` (Windows) creates a desktop shortcut. The
    app's original shortcut keeps starting it unmodified.
-8. **Leave the recipe better.** Update `tested` (version, platform, date) and write every
+9. **Leave the recipe better.** Update `tested` (version, platform, date) and write every
    pitfall you hit into `NOTES.md`. That file is what saves the next person hours.
+
+## Tools at a glance
+
+| Need | Command |
+|---|---|
+| What is this app made of, what can be hooked | `analyze <id>` (or `analyze --exe <path>` before a recipe exists) |
+| Where is X in the code | `search <id> <regex> [--files part] [--context n]` |
+| Read one shipped file | `asar <id> list [part]`, `asar <id> cat <path>` |
+| The app's strings | `inspect <id>` then `check <id>` |
+| What is on screen now, which selectors | `live <id> text`, `live <id> anchors`, `live <id> html <css>` |
+| A value the code hides (obfuscated) | `live <id> eval <expression>` |
+| Proof for the user | `live <id> shot <file.png>` |
+
+Native code (C/C++, Rust, Go, .NET, games, IL2CPP, firmware, Android) is out of scope: appmod
+reads Electron/JavaScript apps only. Say so instead of guessing.
 
 ## When stuck
 
@@ -62,4 +85,5 @@ Project root: the folder containing `bin/appmod.mjs`. Commands below run from th
 - Strings stay in the original language: they are not in the i18n library. Add them to the
   `text` map (exact on-screen text), or they come from the main process (menus, tray), which
   this tool does not reach.
-- Window freezes or closes on launch: increase `reloadDelayMs` or set `reloadIfLate: false`.
+- Window freezes or closes on launch: increase `reloadDelayMs`; if a reload aborts startup or
+  the renderer is swapped at launch, set `reloadIfLate: false` (inject after load).

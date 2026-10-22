@@ -1,3 +1,5 @@
 node_modules/
 *.log
 recipes/*/inspect/
+.appmod-session.json
+recipes/*/analysis/

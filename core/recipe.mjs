@@ -116,6 +116,8 @@ export function loadRecipe(dir) {
     raw,
     logFile: join(root, 'appmod.log'),
     inspectDir: join(root, 'inspect'),
+    analysisDir: join(root, 'analysis'),
+    sessionFile: join(root, '.appmod-session.json'),
   }
 }
 

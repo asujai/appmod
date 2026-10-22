@@ -30,6 +30,7 @@ inspect/           output of `inspect` and `check` (git-ignored)
                                        // optional: read the port the app writes (apps that restart themselves)
     "pageFilter": { "urlPrefix": "qoder-app:" },   // inject only into pages whose URL starts with this
     "reloadIfLate": true,              // reload a window that loaded before we attached
+                                       // false: inject in place after load instead
     "reloadDelayMs": 1500              // wait this long after load before that reload
   },
   "language": {                        // optional
@@ -54,6 +55,11 @@ inspect/           output of `inspect` and `check` (git-ignored)
 
 Paths in `language`, `features` and action args starting with `./` are relative to the recipe
 folder. `"command": "node"` uses the Node that runs appmod.
+
+Use `reloadIfLate: false` for apps that swap renderers during startup or treat an early reload
+as a failed launch. The launcher then waits for the page's own URL and injects the bundle after
+load. Features still work because they use `whenReady`/`observe`; the i18n hook only captures
+what is initialized afterwards, so language packs normally keep `reloadIfLate: true`.
 
 Actions get the page's input as JSON on stdin and answer on stdout (JSON or text). A non-zero
 exit code rejects the page's promise with stderr as the message.

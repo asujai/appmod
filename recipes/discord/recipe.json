@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "discord",
+  "name": "Discord",
+  "tested": { "version": "1.0.9264", "platform": "win32", "date": "2026-10-22" },
+  "app": {
+    "kind": "electron",
+    "exe": {
+      "win32": "%LOCALAPPDATA%/Discord/app-*/Discord.exe"
+    },
+    "args": [],
+    "pageFilter": { "urlPrefix": "https://discord.com" },
+    "reloadIfLate": false,
+    "reloadDelayMs": 2000
+  },
+  "language": {
+    "code": "tr",
+    "name": "Türkçe",
+    "i18n": { "library": "none" }
+  },
+  "features": ["features/translate.js"],
+  "actions": {
+    "translate": { "command": "node", "args": ["./features/translate.mjs"], "timeoutMs": 20000 }
+  }
+}

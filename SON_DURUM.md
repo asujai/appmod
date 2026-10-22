@@ -1,8 +1,8 @@
 # Son Durum
 
-- **Durum:** İlk sürüm hazır, yerelde. Yayınlanmadı.
-- **Son iş:** Standart + skill + CLI + Qoder tarifi (2026-10-22 15:01, Claude).
-- **Doğrulama:** Testler 7/7; Qoder'da inspect/check/launch gerçek uygulamada çalıştı.
-- **Sorunlar:** add modu, özellik örneği, shortcut ve macOS/Linux gerçek uygulamada denenmedi.
-- **Sonraki adım:** Başka bir uygulamada uçtan uca test (Claude veya Antigravity), ardından GitHub'da açık kaynak yayın.
-- **Son commit:** 6a54148
+- **Durum:** Yayında (https://github.com/asujai/appmod). appmod artık REA'ya ihtiyaç duymadan Electron uygulamalarını analiz ediyor, gözlüyor ve değiştiriyor.
+- **Son iş:** analyze / search / asar / live komutları, skill analiz ve canlı gözlem rehberleri (2026-10-22 18:06, Claude). Önceki: Discord çeviri tarifi (Qoder).
+- **Doğrulama:** Testler 15/15; gerçek Qoder'da analyze, search ve live; Discord'da analyze.
+- **Sorunlar:** launch sonrası oturum dosyası uçtan uca denenmedi (uygulamalar kullanıcıda açıktı). Yerel ikili/oyun/Android kapsam dışı. Discord çevirisi resmî olmayan Google uç noktasına bağlı.
+- **Sonraki adım:** Uygulamalar kapalıyken launch + live testi (Claude veya Antigravity).
+- **Son commit:** (bu commit)

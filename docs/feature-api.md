@@ -20,5 +20,6 @@ is caught and recorded in `appmod.errors`; it does not break the others.
 Inspection helpers (used by `inspect`): `appmod.detect()`, `appmod.dumpOriginal(lng, ns)`,
 `appmod.visibleText()`.
 
-Features run before the app's own scripts. Do not read the DOM at the top level; use
-`whenReady` or `observe`.
+Features normally run before the app's own scripts. With `reloadIfLate: false` the bundle is
+injected after load instead (see `docs/recipe-format.md`). Do not read the DOM at the top
+level; use `whenReady` or `observe` so a feature works in both cases.

@@ -1,7 +1,7 @@
 // Starts an Electron app with a local debugging port and injects the appmod runtime into
 // every matching window before the window's own scripts run. The app's files are never touched.
 import { spawn, execFileSync } from 'node:child_process'
-import { readFileSync, statSync, existsSync, appendFileSync, mkdirSync } from 'node:fs'
+import { readFileSync, writeFileSync, rmSync, statSync, existsSync, appendFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { createServer } from 'node:net'
 import { connect, browserUrl, evaluate } from './cdp.mjs'
@@ -149,26 +149,37 @@ export async function launch(recipe, { bundle, onPage, extraArgs = [], force = f
       await cdp.send('Page.addScriptToEvaluateOnNewDocument', { source }, sessionId)
       await cdp.send('Runtime.enable', {}, sessionId)
       await cdp.send('Runtime.addBinding', { name: '__appmodAction' }, sessionId)
-      // A window that loaded before we attached gets one reload. Some apps treat a reload during
-      // their first load as a crash, so wait for the load to finish first.
-      const prefix = JSON.stringify(app.urlPrefix)
+
+      let liveUrl = targetInfo.url || ''
       for (let i = 0; i < 600; i++) {
         const state = await evaluate(
           cdp,
           sessionId,
-          `window.__appmod ? "ok" : !location.href.startsWith(${prefix}) ? "skip" : document.readyState`,
-        ).catch(() => 'navigating')
-        if (state === 'ok' || state === 'skip') break
-        if (state === 'complete') {
-          if (!app.reloadIfLate) break
-          await sleep(app.reloadDelayMs)
-          await cdp.send('Page.reload', {}, sessionId)
-          break
+          '({ href: location.href, ready: document.readyState, appmod: !!window.__appmod })',
+        ).catch(() => null)
+        if (state) {
+          liveUrl = state.href || liveUrl
+          const matches = !app.urlPrefix || liveUrl.startsWith(app.urlPrefix)
+          if (state.appmod) break
+          if (liveUrl && liveUrl !== 'about:blank' && !matches) break
+          if (matches && liveUrl !== 'about:blank' && state.ready === 'complete') {
+            if (app.reloadIfLate) {
+              await sleep(app.reloadDelayMs)
+              await cdp.send('Page.reload', {}, sessionId)
+            } else {
+              // A renderer swap (about:blank -> a web app) can drop the new-document script.
+              // Injecting after load keeps features working; recipes that need the i18n hook
+              // before initialization keep reloadIfLate: true.
+              await evaluate(cdp, sessionId, source)
+              log(`late injection: ${liveUrl}`)
+            }
+            break
+          }
         }
         await sleep(100)
       }
-      log(`ready: ${targetInfo.url || '(new window)'}`)
-      if (onPage) void onPage(cdp, sessionId, targetInfo)
+      log(`ready: ${liveUrl || targetInfo.url || '(new window)'}`)
+      if (onPage) void onPage(cdp, sessionId, { ...targetInfo, url: liveUrl })
     } catch (error) {
       prepared.delete(targetInfo.targetId)
       log(`error (${targetInfo.url}): ${error.message}`)
@@ -231,10 +242,13 @@ export async function launch(recipe, { bundle, onPage, extraArgs = [], force = f
     })
     await cdp.send('Target.setDiscoverTargets', { discover: true })
     log(`connected: ${url}`)
+    // `appmod live` reads this to reach the running app.
+    writeFileSync(recipe.sessionFile, JSON.stringify({ browserUrl: url, exe: app.exe, pid: process.pid, since: new Date().toISOString() }))
     await cdp.closed
     log('connection closed')
     // The app may restart itself with a new port; with a fixed port it reuses the same one.
     since = 0
   }
+  rmSync(recipe.sessionFile, { force: true })
   log('app exited')
 }

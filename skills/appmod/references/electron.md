@@ -9,6 +9,7 @@ local Chrome DevTools Protocol (CDP) endpoint. The launcher (`core/launcher.mjs`
 3. Per page: `Page.enable`, then `Page.addScriptToEvaluateOnNewDocument` with the bundle
    (runtime + language data + features), `Runtime.enable`, `Runtime.addBinding('__appmodAction')`.
 4. A page that already loaded before we attached is reloaded once, after its load completes.
+   With `reloadIfLate: false` it gets the bundle injected in place after load instead.
 5. Keeps running until the app exits; reconnects if the app restarts itself.
 
 Nothing is written into the app's folder. Quitting the launcher-started app and starting it
@@ -28,7 +29,11 @@ from its own shortcut gives the untouched app back.
 - `Target.setAutoAttach` with `waitForDebuggerOnStart` freezes some windows. Use discovery +
   explicit attach (what the launcher does).
 - Reloading a window during its very first load can make an app think startup failed and
-  quit. That is what `reloadDelayMs` is for.
+  quit. That is what `reloadDelayMs` is for; if a reload still aborts startup, use
+  `reloadIfLate: false`.
+- A renderer swap (`about:blank` -> remote URL) can drop the new-document script. With
+  `reloadIfLate: false` the launcher waits for the real URL and injects after load; the
+  script stays registered, so later reloads of that page still get the runtime.
 - Single-instance apps forward new arguments to the running instance and exit. The app must be
   fully quit first; the launcher refuses to start when the exe is running (`--force` skips it).
 - Apps started through an updater stub (Discord's `Update.exe`, Squirrel apps) need `exe` to
