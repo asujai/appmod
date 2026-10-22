@@ -5,4 +5,4 @@
 - **Doğrulama:** Testler 7/7; Qoder'da inspect/check/launch gerçek uygulamada çalıştı.
 - **Sorunlar:** add modu, özellik örneği, shortcut ve macOS/Linux gerçek uygulamada denenmedi.
 - **Sonraki adım:** Başka bir uygulamada uçtan uca test (Claude veya Antigravity), ardından GitHub'da açık kaynak yayın.
-- **Son commit:** (aşağıdaki ilk commit)
+- **Son commit:** 6a54148
