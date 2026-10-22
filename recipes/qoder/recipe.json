@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "qoder",
+  "name": "Qoder",
+  "tested": { "version": "0.4.8", "platform": "win32", "date": "2026-10-21" },
+  "app": {
+    "kind": "electron",
+    "exe": { "win32": "%LOCALAPPDATA%/Programs/Qoder/Qoder.exe" },
+    "portFile": { "win32": "%APPDATA%/com.qoder.app.stable/DevToolsActivePort" },
+    "pageFilter": { "urlPrefix": "qoder-app:" },
+    "reloadIfLate": true,
+    "reloadDelayMs": 1500
+  },
+  "language": {
+    "code": "tr",
+    "name": "Türkçe",
+    "i18n": { "library": "i18next", "base": "en", "namespace": "translation", "mode": "override" },
+    "pack": "packs/tr.json",
+    "text": "text/tr.json"
+  },
+  "features": [],
+  "actions": {}
+}

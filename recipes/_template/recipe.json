@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "id": "template",
+  "name": "App Name",
+  "tested": null,
+  "app": {
+    "kind": "electron",
+    "exe": {
+      "win32": "%LOCALAPPDATA%/Programs/AppName/AppName.exe",
+      "darwin": "/Applications/AppName.app/Contents/MacOS/AppName",
+      "linux": "/opt/AppName/appname"
+    },
+    "pageFilter": { "urlPrefix": "" },
+    "reloadIfLate": true,
+    "reloadDelayMs": 1000
+  },
+  "language": {
+    "code": "xx",
+    "name": "Language name",
+    "i18n": { "library": "i18next", "base": "en", "namespace": "translation", "mode": "override" },
+    "pack": "packs/xx.json",
+    "text": "text/xx.json"
+  },
+  "features": ["features/example-button.js"],
+  "actions": {
+    "example-hello": { "command": "node", "args": ["./features/example-hello.mjs"], "timeoutMs": 5000 }
+  }
+}
