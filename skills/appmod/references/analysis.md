@@ -1,7 +1,9 @@
 # Reading an app before changing it
 
 `analyze`, `search` and `asar` read the shipped code. They never run it and never write into
-the app's folder. Use them to answer one question at a time: where do the strings come from,
+the app's folder. `analyze --exe <path>` first decides the kind (Electron, WebView2, CEF,
+WinUI 3 or other native) and prints the evidence; web-view apps get a short report (engine,
+local UI files) because their UI is best read live. Use them to answer one question at a time: where do the strings come from,
 what does the app already offer, and what is the least invasive way in.
 
 The evidence rules below are adapted from REA's evidence discipline
@@ -35,6 +37,7 @@ The evidence rules below are adapted from REA's evidence discipline
 | `hooks.exposed`, `hooks.ipcMain` | What the page can call into the main process. Useful to understand features; do not call IPC that changes accounts or data the user did not ask about. |
 | `flags.remoteUi` | UI code is downloaded at runtime (Discord, Slack): static results cover only the shell; study the UI with `live`. |
 | `obfuscated` | String literals hidden in lookup arrays. Read the resolved values at runtime with `live <id> eval`. |
+| `flags.debugSwitchChecked` | The code mentions `remote-debugging-port`: the app may refuse or strip it. If launch never connects, read those files and stop. |
 
 ## Following one question
 
@@ -47,8 +50,9 @@ The evidence rules below are adapted from REA's evidence discipline
 
 ## Limits
 
-- Electron/JavaScript only. Native binaries, .NET, games (Unity/IL2CPP, Unreal), Android and
-  firmware need a disassembler or decompiler (REA, Ghidra and similar). Say so.
+- Code analysis is Electron/JavaScript only. Native binaries, .NET, games (Unity/IL2CPP,
+  Unreal), Android and firmware need a disassembler or decompiler: appmod hands them to REA
+  (`analyze` for native and android recipes, `rea <command>`). Say what stays unknown.
 - Bundles larger than 64 MB are skipped and listed in `unknowns`.
 - Source maps, if shipped, are listed by `asar list .map`; reading them is fine, but they are
   rarely shipped.

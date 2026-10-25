@@ -1,7 +1,7 @@
 // Loads and validates a recipe folder (recipes/<id>/recipe.json).
 // The format is documented in docs/recipe-format.md.
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs'
-import { join, resolve, isAbsolute, dirname, basename } from 'node:path'
+import { join, resolve, isAbsolute, dirname, basename, normalize } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
@@ -89,7 +89,7 @@ export function loadRecipe(dir) {
       // "node" means the node running appmod, so actions work without node on PATH.
       command: action.command === 'node' ? process.execPath : expand(action.command),
       // "./x" is inside the recipe, "@appmod/x" inside this repository (shared actions).
-      args: (action.args || []).map(a => expand(a.replace(/^\.\//, root + '/').replace(/^@appmod\//, projectRoot + '/'))),
+      args: (action.args || []).map(a => expand(/^(\.|@appmod)\//.test(a) ? join(a.startsWith('.') ? root : projectRoot, a.replace(/^(\.|@appmod)\//, '')) : a)),
       cwd: root,
       timeoutMs: action.timeoutMs ?? 15000,
     }
@@ -115,7 +115,10 @@ export function loadRecipe(dir) {
   }
 }
 
-export const KINDS = ['electron', 'web', 'android', 'native']
+export const KINDS = ['electron', 'webview', 'web', 'android', 'native']
+// Kinds whose windows are Chromium pages appmod injects into over CDP.
+export const INJECTABLE = ['electron', 'webview', 'web']
+export const ENGINES = ['webview2', 'cef']
 
 // Standard install locations, used when a web recipe says "browser": "auto".
 const BROWSERS = {
@@ -131,14 +134,28 @@ const BROWSERS = {
 }
 
 export function findBrowser() {
-  return (BROWSERS[PLATFORM] || []).map(expand).find(p => existsSync(p)) || null
+  return (BROWSERS[PLATFORM] || []).map(p => normalize(expand(p))).find(p => existsSync(p)) || null
 }
 
 // Per-kind app settings. Every kind gets: exe (what to start, if anything), args, env.
 function resolveApp(kind, a, root, errors) {
   const env = Object.fromEntries(Object.entries(a.env || {}).map(([k, v]) => [k, expand(String(v))]))
-  const base = { args: a.args || [], env, urlPrefix: a.pageFilter?.urlPrefix || '', reloadIfLate: a.reloadIfLate !== false, reloadDelayMs: a.reloadDelayMs ?? 1000 }
-  if (kind === 'electron' || kind === 'native') {
+  const base = {
+    args: a.args || [],
+    env,
+    urlPrefix: a.pageFilter?.urlPrefix || '',
+    reloadIfLate: a.reloadIfLate !== false,
+    reloadDelayMs: a.reloadDelayMs ?? 1000,
+    startTimeoutMs: a.startTimeoutMs ?? 60000,
+    // CDP target types that get the runtime. Electron <webview> tags are "webview".
+    targetTypes: a.targetTypes || ['page'],
+  }
+  if (!Array.isArray(base.args) || base.args.some(x => typeof x !== 'string')) errors.push('app.args must be a list of strings')
+  if (kind === 'webview') {
+    if (!ENGINES.includes(a.engine)) errors.push(`webview recipes need app.engine: ${ENGINES.join(' or ')}`)
+    if (a.engine === 'webview2' && PLATFORM !== 'win32') errors.push('WebView2 exists on Windows only')
+  }
+  if (kind === 'electron' || kind === 'native' || kind === 'webview') {
     const exeRaw = forPlatform(a.exe)
     if (!exeRaw) errors.push(`app.exe has no entry for platform ${PLATFORM}`)
     const exe = exeRaw ? resolveGlob(expand(exeRaw)) : ''
@@ -148,8 +165,8 @@ function resolveApp(kind, a, root, errors) {
       if (!existsSync(i.from)) errors.push(`install source missing: ${i.from}`)
       if (!i.to) errors.push(`install target has no entry for platform ${PLATFORM}`)
     }
-    if (install.length && kind === 'electron') errors.push('install is for kind "native"; electron recipes change the app at runtime')
-    return { ...base, exe, exeName: exe ? basename(exe) : '', portFile: portFileRaw && expand(portFileRaw), install }
+    if (install.length && kind !== 'native') errors.push(`install is for kind "native"; ${kind} recipes change the app at runtime`)
+    return { ...base, exe, exeName: exe ? basename(exe) : '', portFile: portFileRaw && expand(portFileRaw), install, engine: kind === 'webview' ? a.engine : undefined }
   }
   if (kind === 'web') {
     const browserRaw = forPlatform(a.browser) || 'auto'

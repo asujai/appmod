@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "qoder",
   "name": "Qoder",
-  "tested": { "version": "0.4.8", "platform": "win32", "date": "2026-10-21" },
+  "tested": { "version": "0.4.8", "platform": "win32", "date": "2026-10-25" },
   "app": {
     "kind": "electron",
     "exe": { "win32": "%LOCALAPPDATA%/Programs/Qoder/Qoder.exe" },

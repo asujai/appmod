@@ -1,9 +1,11 @@
 // Builds a tiny fake Electron install (exe with fuses + app.asar) and runs the analyzer on it.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { spawnSync } from 'node:child_process'
+import { projectRoot } from '../core/recipe.mjs'
 import { openAsar } from '../core/asar.mjs'
 import { readFuses } from '../core/fuses.mjs'
 import { analyzeApp, searchApp } from '../core/analyze.mjs'
@@ -72,6 +74,30 @@ test('fuse reader decodes states', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('asar extract never writes outside the copy', () => {
+  const dir = fakeInstall()
+  try {
+    // An archive entry that climbs out of the extraction folder.
+    writeAsar(join(dir, 'resources', 'app.asar'), { 'main.js': 'ok', '../../../escaped.txt': 'evil' })
+    const recipeDir = join(dir, 'recipe')
+    mkdirSync(recipeDir)
+    writeFileSync(join(recipeDir, 'recipe.json'), JSON.stringify({ schema: 1, id: 'x', app: { kind: 'electron', exe: join(dir, 'App.exe') } }))
+    const res = spawnSync(process.execPath, [join(projectRoot, 'bin', 'appmod.mjs'), 'asar', recipeDir, 'extract'], { encoding: 'utf8' })
+    assert.equal(res.status, 0, res.stderr)
+    assert.match(res.stdout, /skipped .*escaped\.txt/)
+    assert.ok(existsSync(join(recipeDir, 'analysis', 'source', 'main.js')))
+    assert.ok(!existsSync(join(dir, 'escaped.txt')) && !existsSync(join(recipeDir, 'escaped.txt')))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('options may come before the recipe and never swallow a flag', () => {
+  const res = spawnSync(process.execPath, [join(projectRoot, 'bin', 'appmod.mjs'), 'validate', '--gui', 'qoder'], { encoding: 'utf8' })
+  assert.equal(res.status, 0, res.stderr)
+  assert.deepEqual(res.stdout.trim().split('\n'), ['ok qoder'])
 })
 
 test('analyzer finds i18n, locales, hooks and flags', () => {

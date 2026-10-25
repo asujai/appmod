@@ -73,7 +73,13 @@
   const lang = CONFIG.language
   const i18nCfg = lang && lang.i18n
   const OVERRIDES = nested(PACK)
-  const sameLang = (a, b) => typeof a === 'string' && a.toLowerCase().split('-')[0] === b.toLowerCase()
+  // "pt-BR" matches "pt-BR"; a regional "en-US" bundle also matches a plain "en" target.
+  const sameLang = (a, b) => {
+    if (typeof a !== 'string') return false
+    const x = a.toLowerCase()
+    const y = b.toLowerCase()
+    return x === y || x.split('-')[0] === y
+  }
 
   function hookI18next(i18n) {
     const store = i18n.store
@@ -142,19 +148,34 @@
   const SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'CODE', 'PRE', 'NOSCRIPT'])
   const MAX_TEXT = CONFIG.maxTextLength || 120
 
+  // Values this script wrote, so its own mutations are not translated again (a map with
+  // "Home" -> "Start" and "Start" -> "Home" would otherwise flip forever).
+  const written = new WeakMap()
+
   function translateTextNode(node) {
     const text = node.nodeValue
-    if (!text || text.length > MAX_TEXT) return
+    if (!text || text.length > MAX_TEXT || written.get(node) === text) return
     const trimmed = text.trim()
     const tr = TEXT[trimmed]
-    if (tr !== undefined && tr !== trimmed) node.nodeValue = text.replace(trimmed, tr)
+    if (tr !== undefined && tr !== trimmed) {
+      // A replacer function keeps "$&", "$$" and similar in translations literal.
+      node.nodeValue = text.replace(trimmed, () => tr)
+      written.set(node, node.nodeValue)
+    }
   }
 
   function translateElement(element) {
     if (SKIP.has(element.tagName) || element.isContentEditable) return
+    let mine = written.get(element)
     for (const name of ATTRIBUTES) {
       const value = element.getAttribute(name)
-      if (value && TEXT[value.trim()] !== undefined) element.setAttribute(name, TEXT[value.trim()])
+      if (!value || (mine && mine[name] === value)) continue
+      const tr = TEXT[value.trim()]
+      if (tr !== undefined && tr !== value) {
+        element.setAttribute(name, tr)
+        if (!mine) written.set(element, (mine = {}))
+        mine[name] = tr
+      }
     }
   }
 
@@ -210,18 +231,44 @@
   }
 
   // Calls fn(element) once for every element matching selector, now and whenever one appears.
-  appmod.observe = (selector, fn) => {
-    const seen = new WeakSet()
-    const scan = () => {
-      document.querySelectorAll(selector).forEach(el => {
-        if (seen.has(el)) return
-        seen.add(el)
-        run(`observe(${selector})`, fn, el)
+  // All observers share one MutationObserver and one scan per batch of DOM changes, so many
+  // features stay cheap in busy apps.
+  const watchers = []
+  let scanQueued = false
+  const scanAll = () => {
+    scanQueued = false
+    for (const w of watchers) {
+      if (w.broken) continue
+      let found
+      try {
+        found = document.querySelectorAll(w.selector)
+      } catch (error) {
+        // An invalid selector is reported once, not on every DOM change.
+        w.broken = true
+        report(`observe(${w.selector})`, error)
+        continue
+      }
+      found.forEach(el => {
+        if (w.seen.has(el)) return
+        w.seen.add(el)
+        run(`observe(${w.selector})`, w.fn, el)
       })
     }
+  }
+  let rootObserver = null
+  appmod.observe = (selector, fn) => {
+    watchers.push({ selector, fn, seen: new WeakSet() })
     appmod.whenReady(() => {
-      scan()
-      new MutationObserver(scan).observe(document.body, { subtree: true, childList: true })
+      if (!rootObserver) {
+        rootObserver = new MutationObserver(() => {
+          if (!scanQueued) {
+            scanQueued = true
+            queueMicrotask(scanAll)
+          }
+        })
+        rootObserver.observe(document.body, { subtree: true, childList: true })
+      }
+      scanAll()
     })
   }
 
@@ -229,9 +276,12 @@
   // position: 'before' | 'after' | 'prepend' | 'append' (default 'after').
   appmod.addButton = ({ id, near, position = 'after', label = '', title, html, className, style, onClick }) => {
     if (!id) throw new Error('addButton needs an id')
+    const mine = el => !!el && el.dataset && el.dataset.appmodId === id
     appmod.observe(near, anchor => {
-      const host = position === 'prepend' || position === 'append' ? anchor : anchor.parentElement
-      if (host && host.querySelector(`[data-appmod-id="${id}"]`)) return
+      // One button per anchor, even when several anchors share a parent.
+      if (position === 'after' && mine(anchor.nextElementSibling)) return
+      if (position === 'before' && mine(anchor.previousElementSibling)) return
+      if ((position === 'prepend' || position === 'append') && Array.from(anchor.children).some(mine)) return
       const button = document.createElement('button')
       button.type = 'button'
       button.dataset.appmodId = id
@@ -261,6 +311,61 @@
     })
   }
 
+  // Hides elements with CSS instead of removing them, so the app's own rendering is unaffected.
+  appmod.hide = selector => appmod.addStyle(`${selector} { display: none !important; }`)
+
+  // Keyboard shortcut, e.g. appmod.hotkey('ctrl+shift+k', fn). "mod" is Cmd on macOS, Ctrl
+  // elsewhere. Ignored while the user types in a field unless { inInputs: true }.
+  appmod.hotkey = (combo, fn, { inInputs = false } = {}) => {
+    const isMac = /Mac/.test(navigator.platform || navigator.userAgent || '')
+    const parts = String(combo).toLowerCase().split('+').map(s => s.trim())
+    const key = parts.pop()
+    const want = { ctrl: false, shift: false, alt: false, meta: false }
+    for (const p of parts) {
+      if (p === 'mod') want[isMac ? 'meta' : 'ctrl'] = true
+      else if (p === 'cmd' || p === 'meta') want.meta = true
+      else if (p === 'ctrl' || p === 'shift' || p === 'alt') want[p] = true
+      else throw new Error(`hotkey: unknown modifier "${p}" in "${combo}"`)
+    }
+    document.addEventListener(
+      'keydown',
+      event => {
+        // event.code keeps "shift+1" and non-Latin layouts working ("Digit1", "KeyK").
+        const code = (event.code || '').toLowerCase().replace(/^(key|digit)/, '')
+        if ((event.key || '').toLowerCase() !== key && code !== key) return
+        if (event.ctrlKey !== want.ctrl || event.shiftKey !== want.shift || event.altKey !== want.alt || event.metaKey !== want.meta) return
+        const t = event.target
+        if (!inInputs && t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return
+        event.preventDefault()
+        event.stopPropagation()
+        Promise.resolve(run(`hotkey ${combo}`, fn, event)).catch(e => report(`hotkey ${combo}`, e))
+      },
+      true,
+    )
+  }
+
+  // Small per-recipe settings (a toggle, a last choice) in the page's own localStorage.
+  const storeKey = key => `appmod:${CONFIG.recipe}:${key}`
+  appmod.store = {
+    get(key, fallback = null) {
+      try {
+        const raw = localStorage.getItem(storeKey(key))
+        return raw === null ? fallback : JSON.parse(raw)
+      } catch {
+        return fallback
+      }
+    },
+    set(key, value) {
+      try {
+        localStorage.setItem(storeKey(key), JSON.stringify(value))
+        return true
+      } catch (error) {
+        report('store.set', error)
+        return false
+      }
+    },
+  }
+
   // Runs a native action declared in recipe.json "actions". Resolves with its stdout (parsed as
   // JSON when possible). Only declared actions can run; the launcher enforces this.
   let nextCall = 1
@@ -285,6 +390,14 @@
   // ---------- inspection helpers (used by `appmod inspect`) ----------
 
   appmod.dumpOriginal = (lng, ns) => flatten((appmod.original[lng] || {})[ns])
+
+  // Keys the app has now but the language pack lacks: after an app update these show up in
+  // English. `live <recipe> errors` reports the count.
+  appmod.missing = () => {
+    if (!i18nCfg || i18nCfg.library !== 'i18next') return []
+    const original = appmod.dumpOriginal(i18nCfg.base, i18nCfg.namespace)
+    return Object.keys(original).filter(key => !(key in PACK) && original[key].trim())
+  }
 
   appmod.detect = () => {
     const found = []

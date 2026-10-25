@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "hacker-news",
   "name": "Hacker News",
-  "tested": { "version": "site 2026-10-22", "platform": "win32", "date": "2026-10-22" },
+  "tested": { "version": "site 2026-10-25", "platform": "win32", "date": "2026-10-25" },
   "app": {
     "kind": "web",
     "browser": "auto",
@@ -11,7 +11,7 @@
     "reloadIfLate": true
   },
   "language": { "code": "tr", "name": "Türkçe", "i18n": { "library": "none" } },
-  "features": ["features/translate-titles.js"],
+  "features": ["features/translate-titles.js", "features/theme.js"],
   "actions": {
     "translate": { "command": "node", "args": ["@appmod/shared/actions/translate.mjs"], "timeoutMs": 20000 }
   }

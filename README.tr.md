@@ -1,83 +1,120 @@
 # appmod
 
-**Kullandığın uygulamalara ve sitelere kendi dilini ve küçük eklentilerini getir.**
+[![testler](https://github.com/asujai/appmod/actions/workflows/test.yml/badge.svg)](https://github.com/asujai/appmod/actions/workflows/test.yml)
+
+**Kullandığın uygulamalara ve sitelere kendi dilini, kendi görünümünü ve küçük eklentilerini
+getir. Yapay zekâ ajanına bir kez söyle; masaüstünde uygulamayı senin istediğin gibi açan tek
+bir kısayol olsun.**
 
 appmod, sahibi olmadığın uygulamaları kendin için değiştirmeye yarayan açık bir standart ve
-araç takımı: eksik arayüz dilini ya da küçük bir kişisel özelliği (bir tuş, bir kısayol, yerel
-bir betiğe bağlantı) ekler. Uygulamanın dosyalarına dokunmaz. Her değişiklik bir **tarifte**
-(recipe) durur; tarif neyin işe yaradığını ve nerede takılındığını da yazar, sonraki kişi
-sıfırdan başlamaz.
+araç takımı: eksik arayüz dilini ekler, ekranı yeniden boyar, kalabalığı gizler, bir tuş ya da
+klavye kısayolu ekler, mesajları istendiğinde çevirir veya yerel bir betiğe bağlar. Uygulamanın
+dosyalarına dokunmaz. Her değişiklik bir **tarifte** (recipe) durur; tarif neyin işe yaradığını
+ve nerede takılındığını da yazar, sonraki kişi sıfırdan başlamaz.
 
-Yapay zekâ kodlama ajanları için tasarlandı (Claude Code, Codex, Gemini/Antigravity…).
-`skills/appmod` becerisi ajana neyi kontrol edeceğini, hedefi nasıl okuyacağını, değişikliği
-nasıl güvenle uygulayacağını ve ekranda nasıl doğrulayacağını söyler.
+Yapay zekâ kodlama ajanları için tasarlandı (Claude Code, Codex, Gemini CLI, Antigravity…).
+`skills/appmod` becerisi ajana isteği nasıl anlayacağını, en ucuz yolu, hedefi nasıl
+okuyacağını, değişikliği nasıl güvenle uygulayacağını, ekranda nasıl doğrulayacağını ve tek
+kısayolla nasıl teslim edeceğini söyler.
 
-## Kapsam
+## Kurulum (bir kez)
 
-| Tür | Örnek | Nasıl okur | Nasıl değiştirir | Geri alma |
-|---|---|---|---|---|
-| `electron` | Qoder, Discord, Slack, VS Code türevleri | asar, fuse, çeviri sistemi, ortam değişkenleri, IPC (yerleşik) | açılışta CDP ile yükler | uygulamayı normal aç |
-| `web` | herhangi bir site | canlı sayfa (yerleşik) | ayrı tarayıcı profili ya da paketlenmemiş eklenti | kapat / eklentiyi kaldır |
-| `android` | ADB ile telefon veya TV uygulamaları | `aapt2` ile gelen diller; kod için REA | resmî uygulama başına dil (Android 13+) | `reset` |
-| `native` | diğer masaüstü uygulamaları | REA | uygulamanın resmî yolları: dil/eklenti klasörü, argüman, ortam değişkeni | `reset` |
+```bash
+git clone https://github.com/asujai/appmod.git
+node appmod/bin/appmod.mjs setup
+```
 
-appmod Electron uygulamalarını ve siteleri kendisi okur. Yerel program, .NET ve APK kodu için
-gerektiğinde [REA](https://github.com/morluto/rea)'yı çağırır (kuruluysa onu, değilse `npx` ile
-bir kez indirir); sen yalnız appmod'u çalıştırırsın. REA hedefi anlar; appmod REA'nın bilerek
-yapmadığı kısmı ekler: değişikliği uygulamak ve paylaşmak.
+`setup`, beceriyi bulduğu her kodlama ajanına kopyalar (Claude Code `~/.claude/skills`, Codex ve
+Gemini CLI `~/.agents/skills`, Antigravity `~/.gemini/config/skills`) ve bu klasörün yerini içine
+yazar. Yalnız Node.js 22+ gerekir. `node appmod/bin/appmod.mjs doctor` bilgisayarda neyin hazır
+olduğunu gösterir. `git pull` sonrası `setup`'ı yeniden çalıştır.
 
-## Örnek istekler
+Ya da ajana bırak: *"github.com/asujai/appmod'u kur ve setup'ını çalıştır."*
 
-> "Qoder'da yalnız İngilizce ve Çince var. Türkçe ekle."
+## Kullanım
+
+Ajana kendi cümlelerinle söyle:
+
+> "Qoder'da yalnız İngilizce ve Çince var. Türkçe yap."
+>
+> "Discord'da her mesaja çeviri düğmesi koy."
 >
 > "Hacker News'te her başlığın yanına çeviri düğmesi koy."
 >
+> "Bu sitenin yazılarını büyüt, yan menüyü gizle."
+>
 > "Bu Android TV uygulaması Türkçe açılsın."
 
-## Gerekenler
+Ajan `recipes/<uygulama>/` tarifini bulur ya da yazar, değişikliği uygular, ekranda doğrular ve
+masaüstüne bir kısayol koyar. **Kısayola çift tıkla**, uygulama değişikliklerinle açılsın.
+Uygulama değişikliksiz açıksa yeniden başlatmayı sorar; zaten değişikliklerle açıksa öne getirir.
+Uygulamanın kendi kısayolu onu değiştirmeden açmaya devam eder.
 
-- Node.js 22 veya üstü (npm bağımlılığı yok)
-- Web tarifleri: Chrome veya Edge. Android tarifleri: `adb` (ve `aapt2` için Android SDK
-  build-tools).
-- Windows'ta test edildi; macOS ve Linux henüz denenmedi.
+## Kapsam
+
+| Tür | Örnek | Ne değişebilir | Nasıl | Tek tık | Geri alma |
+|---|---|---|---|---|---|
+| `electron` | Qoder, Discord, Slack, VS Code türevleri | penceredeki her şey | açılışta yerel hata ayıklama portu üzerinden yükleme | masaüstü kısayolu | uygulamayı normal aç |
+| `webview` | WebView2 uygulamaları (Tauri, Wails, web arayüzlü Windows araçları), CEF uygulamaları | web görünümündeki her şey | aynısı; port `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` ya da anahtarla | masaüstü kısayolu | uygulamayı normal aç |
+| `web` | herhangi bir site | eşleşen sayfalardaki her şey | ayrı tarayıcı profili ya da kendi tarayıcın için eklenti | kısayol ya da eklenti | kapat / eklentiyi kaldır |
+| `android` | ADB ile telefon veya TV uygulamaları | uygulamanın dili (içinde gelen diller) | resmî uygulama başına dil (Android 13+) | masaüstü kısayolu | `reset` |
+| `native` | WinUI, WPF, Qt ve diğer masaüstü uygulamaları | uygulamanın izin verdiği kadar | resmî yollar: dil ve eklenti klasörleri, anahtarlar, ortam değişkenleri | masaüstü kısayolu | `reset` |
+
+appmod Electron uygulamalarını, web görünümlerini ve siteleri kendisi okur. Yerel program, .NET
+ve APK kodu için gerektiğinde [REA](https://github.com/morluto/rea)'yı çağırır (kuruluysa onu,
+değilse `npx` ile bir kez indirir).
 
 ## Komutlar
 
 ```bash
-node bin/appmod.mjs list                         # tarifler ve türleri
+node bin/appmod.mjs setup                        # beceriyi ajanlarına kur
+node bin/appmod.mjs doctor [tarif]               # bilgisayar denetimi; tarif: sürüm, durum, ne çalıştırdığı
+node bin/appmod.mjs list                         # tarifler
 node bin/appmod.mjs new uygulama --kind web      # şablondan yeni tarif
-node bin/appmod.mjs analyze qoder                # hedefi çalıştırmadan oku
-node bin/appmod.mjs search qoder "PLUGIN_DEV"    # Electron kodunda arama
-node bin/appmod.mjs inspect qoder                # Electron uygulamasının metinlerini çıkar
+node bin/appmod.mjs analyze --exe "C:/.../App.exe"  # bu ne tür uygulama, nereye bağlanılır
+node bin/appmod.mjs analyze qoder                # Electron uygulamasını çalıştırmadan oku
+node bin/appmod.mjs inspect qoder                # uygulamanın metinlerini çıkar
 node bin/appmod.mjs check qoder                  # eksik anahtar, bozuk yer tutucu denetimi
-node bin/appmod.mjs launch hacker-news           # tarifi uygula ve başlat
+node bin/appmod.mjs validate --all               # bütün tariflerin durağan denetimi
+node bin/appmod.mjs launch hacker-news           # tarifle başlat
+node bin/appmod.mjs launch hacker-news --headless   # aynısı, penceresiz (denetim, CI)
 node bin/appmod.mjs live hacker-news shot a.png  # açık hedefin ekran görüntüsü
+node bin/appmod.mjs live qoder missing           # uygulama güncellenince: pakette olmayan metinler
+node bin/appmod.mjs shortcut qoder               # masaüstü kısayolu (Windows, macOS, Linux)
 node bin/appmod.mjs extension hacker-news        # web: kendi tarayıcın için eklenti
 node bin/appmod.mjs reset android-uygulamam      # android/native: geri al
-node bin/appmod.mjs rea doctor --json            # herhangi bir REA komutunu appmod üzerinden çalıştır
 ```
 
-## Tarifler
-
-| Tarif | Tür | Dil | Özellik | Denenen |
-|---|---|---|---|---|
-| [Qoder](recipes/qoder/NOTES.md) | electron | Türkçe (9.182 anahtar + 209 metin) | — | 0.4.8, Windows 11 |
-| [Discord](recipes/discord/NOTES.md) | electron | — | mesaj çeviri düğmesi | 1.0.9264, Windows 11 |
-| [Hacker News](recipes/hacker-news/NOTES.md) | web | — | başlık ve yorumlarda çeviri düğmesi | 2026-10-22, Chrome, Windows 11 |
-
-Her tür için şablon: `recipes/_template*`.
+Bütün komut ve seçenekler: `node bin/appmod.mjs help`.
 
 ## Sınırlar
 
-- Değişiklik uygulama güncellenene kadar geçerli; sonra yeniden analiz edilir.
-- Electron'da tepsi menüsü, yerel menüler ve işletim sistemi pencereleri olduğu gibi kalır.
-- Android ve yerel uygulamalara tuş eklenemez (root ya da uygulamanın kendi eklenti sistemi
-  olmadan içine yükleme yapılamaz). Android'de uygulama başına dil yalnız uygulamanın taşıdığı
-  dillerden seçer.
-- `launch` ile açıkken hata ayıklama portu (yalnız 127.0.0.1) bilgisayardaki diğer programlara
-  açıktır. Ortak veya güvenilmeyen bilgisayarda kullanma.
+- Değişiklikler uygulama güncellenene kadar sürer. `doctor <tarif>` sürüm değişikliğini,
+  `live <tarif> missing` yeni metinleri gösterir; ajan kayanı yeniden yapar.
+- Ana süreç arayüzü (tepsi, yerel menüler, işletim sistemi pencereleri) olduğu gibi kalır.
+  WinUI, WPF ve Qt pencerelerine yükleme yapılamaz; yalnız resmî yolları çalışır. Android'e
+  yeni düğme eklenemez.
+- Uygulama appmod ile açıkken hata ayıklama portu (yalnız 127.0.0.1) yerel programların onu
+  yönetmesine izin verir. Paylaşılan ya da güvenilmeyen bilgisayarlarda kullanma.
+- Elle Windows 11'de denendi. CI iş akışı test takımını Windows, macOS ve Linux'ta çalıştırır;
+  oradaki kısayollar ve masaüstü uygulamaları henüz elle denenmedi.
 
-Yalnız kişisel kullanım içindir. Bazı uygulamaların kullanım şartları istemciyi değiştirmeyi
-yasaklar; uymak kullanıcının sorumluluğundadır. appmod hesaplara, ödemelere, DRM'e ve hile
-önleme sistemlerine dokunmaz, ücretli özellik açmaz. MIT lisanslı. Analiz yönergeleri REA'dan
-(MIT) uyarlandı; bkz. `THIRD_PARTY_NOTICES.md`.
+## Tarifler
+
+| Tarif | Tür | Değişiklik | Denendi |
+|---|---|---|---|
+| [Qoder](recipes/qoder/NOTES.md) | electron | Türkçe arayüz (9.628 anahtar + 209 metin) | 0.4.8, Windows 11, 2026-10-25 |
+| [Discord](recipes/discord/NOTES.md) | electron | her mesajda çeviri düğmesi | 1.0.9264, Windows 11 |
+| [Hacker News](recipes/hacker-news/NOTES.md) | web | başlık ve yorumlarda çeviri düğmesi, karanlık tema | Chrome, Windows 11, 2026-10-25 |
+
+Her tür için şablon: `recipes/_template*`. Yeni tarifler için: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Uyarı
+
+Kendi cihazlarında kişisel kullanım içindir. Bazı uygulamaların kullanım koşulları istemci
+değişikliğini yasaklar; bunlara uymak senin sorumluluğundadır. appmod hesaplara, ödemelere,
+DRM'ye ve hile önleyicilere dokunmaz, ücretli özellik açmaz; tarifler de açamaz. Dil paketleri
+uygulamaların arayüz metinlerinin çevirisidir; uygulama adları ve markalar sahiplerine aittir.
+Listelenen uygulamalarla ya da REA ile bağlantısı yoktur.
+
+MIT lisanslı. Analiz yönergeleri REA'dan (MIT) uyarlandı; bkz. `THIRD_PARTY_NOTICES.md`.

@@ -6,7 +6,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { loadRecipe, projectRoot } from '../core/recipe.mjs'
-import { matchToRegex } from '../core/launcher.mjs'
+import { matchToRegex, prefixToRegex } from '../core/launcher.mjs'
+import { detectKind } from '../core/analyze.mjs'
 import { buildExtension } from '../core/extension.mjs'
 import { parseConfigurations } from '../core/android.mjs'
 import { installFiles, resetFiles, protectedTarget } from '../core/native.mjs'
@@ -88,6 +89,71 @@ test('native install keeps a backup, reset restores it, protected folders are re
     assert.equal(readFileSync(join(appDir, 'lang.xml'), 'utf8'), 'turkish')
     resetFiles(inApp)
     assert.ok(!existsSync(join(appDir, 'lang.xml')))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('match patterns without a port match any port; with a port only that one', () => {
+  const any = new RegExp(matchToRegex('http://127.0.0.1/app/*'))
+  assert.ok(any.test('http://127.0.0.1:5173/app/x'))
+  assert.ok(any.test('http://127.0.0.1/app/'))
+  assert.ok(!any.test('http://127.0.0.1:5173/other/'))
+  const fixed = new RegExp(matchToRegex('http://localhost:8080/*'))
+  assert.ok(fixed.test('http://localhost:8080/a'))
+  assert.ok(!fixed.test('http://localhost:9090/a'))
+  assert.ok(!new RegExp(matchToRegex('https://*.example.com/*')).test('https://evil.com:443.example.org/'))
+})
+
+test('a URL prefix only matches at a boundary', () => {
+  const discord = new RegExp(prefixToRegex('https://discord.com'))
+  assert.ok(discord.test('https://discord.com'))
+  assert.ok(discord.test('https://discord.com/channels/@me'))
+  assert.ok(discord.test('https://discord.com?x=1'))
+  assert.ok(!discord.test('https://discord.com.evil.example/'))
+  assert.ok(!discord.test('https://discord.community/'))
+  assert.ok(new RegExp(prefixToRegex('qoder-app:')).test('qoder-app://renderer/index.html'))
+})
+
+test('webview recipes need an engine and load like electron ones', () => {
+  const dir = temp()
+  try {
+    const write = app => writeFileSync(join(dir, 'recipe.json'), JSON.stringify({ schema: 1, id: 'w', app: { kind: 'webview', exe: 'C:/x/App.exe', ...app } }))
+    write({})
+    assert.throws(() => loadRecipe(dir), /app\.engine/)
+    write({ engine: 'cef', targetTypes: ['page', 'webview'], startTimeoutMs: 5000 })
+    const r = loadRecipe(dir)
+    assert.equal(r.app.engine, 'cef')
+    assert.deepEqual(r.app.targetTypes, ['page', 'webview'])
+    assert.equal(r.app.startTimeoutMs, 5000)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('kind detection: electron, WebView2, WinUI 3, CEF, Tauri-style and native', () => {
+  const dir = temp()
+  try {
+    const app = (name, files) => {
+      const d = join(dir, name)
+      mkdirSync(d, { recursive: true })
+      writeFileSync(join(d, 'App.exe'), 'MZ plain binary')
+      for (const f of files) writeFileSync(join(d, f), '')
+      return join(d, 'App.exe')
+    }
+    assert.equal(detectKind(app('wv2', ['WebView2Loader.dll'])).engine, 'webview2')
+    assert.equal(detectKind(app('cef', ['libcef.dll'])).engine, 'cef')
+    const winui = detectKind(app('winui', ['WebView2Loader.dll', 'Microsoft.UI.Xaml.Controls.dll']))
+    assert.equal(winui.kind, 'native')
+    assert.equal(winui.embeds, 'webview2')
+    assert.equal(detectKind(app('native', ['Qt6Core.dll'])).kind, 'native')
+    const tauri = app('tauri', [])
+    writeFileSync(tauri, Buffer.concat([Buffer.from('MZ'), Buffer.from('CreateCoreWebView2EnvironmentWithOptions', 'utf16le')]))
+    assert.equal(detectKind(tauri).engine, 'webview2')
+    const electron = app('electron', [])
+    mkdirSync(join(dir, 'electron', 'resources', 'app'), { recursive: true })
+    writeFileSync(join(dir, 'electron', 'resources', 'app', 'package.json'), '{}')
+    assert.equal(detectKind(electron).kind, 'electron')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

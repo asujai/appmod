@@ -44,7 +44,16 @@ After `inspect`, `page-*.json` → `found` and `namespaces` tell you:
 placeholder mismatches, empty values and keys that no longer exist in the app. Fix until `ok`.
 "same as source" counts are fine for brand names and codes; scan them for forgotten strings.
 
-## 5. Strings outside i18n
+## 5. After launch, and after every app update
+
+`live <id> errors` reports `missingKeys`: strings the running app has that the pack lacks
+(lazy-loaded screens, or new strings after an update). `live <id> missing` writes them to
+`inspect/missing.<code>.json` and refreshes the strings dump, without a separate inspect run.
+Translate them as above, merge, `check`, launch again until `missingKeys` is 0. Open the
+screens you changed (settings, dialogs) before reading `missing`: some apps load strings only
+when a screen first opens.
+
+## 6. Strings outside i18n
 
 Whatever is still in the base language on screen after launch goes into `text/<code>.json` as
 exact visible text → translation (whole text node or `placeholder`/`title`/`aria-label`

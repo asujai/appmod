@@ -1,10 +1,15 @@
 {
   "name": "appmod",
-  "version": "0.1.0",
-  "description": "Personal language packs and small features for installed Electron desktop apps, applied at launch without touching app files.",
+  "version": "0.2.0",
+  "description": "Ask your AI agent once: your language, look and small features in the apps and sites you already use, behind one desktop shortcut, without touching the app's files.",
   "type": "module",
   "bin": { "appmod": "bin/appmod.mjs" },
-  "scripts": { "test": "node --test tests/*.test.mjs" },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "validate": "node bin/appmod.mjs validate --all"
+  },
   "engines": { "node": ">=22" },
+  "repository": { "type": "git", "url": "https://github.com/asujai/appmod.git" },
+  "keywords": ["agent-skill", "electron", "webview2", "localization", "userscript", "personalization", "cdp"],
   "license": "MIT"
 }

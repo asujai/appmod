@@ -29,7 +29,8 @@ function fakeI18next(context) {
 }
 
 function sandbox() {
-  const context = vm.createContext({ console: { log() {}, warn() {} }, queueMicrotask, document: { body: null, addEventListener() {} } })
+  // The Qoder recipe limits the runtime to qoder-app: pages.
+  const context = vm.createContext({ console: { log() {}, warn() {} }, queueMicrotask, location: { href: 'qoder-app://renderer/index.html' }, document: { body: null, addEventListener() {} } })
   context.window = context
   return context
 }
@@ -55,6 +56,24 @@ test('inspect bundle (no language) captures without changing strings', () => {
   const i18n = fakeI18next(context)
   assert.equal(i18n.store.data.en.translation.settings.title, 'Settings')
   assert.equal(context.__appmod.dumpOriginal('en', 'translation')['hello'], 'Hello {{name}}')
+})
+
+test('the runtime stays out of pages outside pageFilter.urlPrefix (login popups, embeds)', () => {
+  const recipe = loadRecipe(join(projectRoot, 'recipes', 'qoder'))
+  const context = sandbox()
+  context.location.href = 'https://login.example.com/oauth'
+  vm.runInContext(buildBundle(recipe), context)
+  assert.equal(context.__appmod, undefined)
+})
+
+test('a regional target code keeps its pack when the app reloads that bundle', () => {
+  const recipe = loadRecipe(join(projectRoot, 'recipes', 'qoder'))
+  recipe.language = { ...recipe.language, code: 'pt-BR', i18n: { ...recipe.language.i18n, mode: 'add' } }
+  const context = sandbox()
+  vm.runInContext(buildBundle(recipe, { withFeatures: false }), context)
+  const i18n = fakeI18next(context)
+  i18n.store.addResourceBundle('pt-BR', 'translation', { dataDirectory: { title: 'Local data' } }, true, true)
+  assert.equal(i18n.store.data['pt-BR'].translation.dataDirectory.title, 'Yerel veriler')
 })
 
 test('add mode registers a new language and switches to it', () => {

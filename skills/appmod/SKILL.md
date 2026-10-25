@@ -1,97 +1,126 @@
 ---
 name: appmod
-description: Add a language or a small personal feature (a button, a shortcut, a hook to a local script) to an app the user already uses, without modifying the app's files. Covers desktop Electron apps, websites, Android apps over ADB and other desktop apps through their official routes. Use when the user asks to translate an app or site into their language, add a missing language, or add/change something in an app's interface for personal use.
+description: Personalize an app or website the user already uses, for themselves, without touching its files. Add or fix the interface language, translate content on demand, change the look (theme, colors, font size, density), hide clutter, add a button, menu item or keyboard shortcut, automate a small step, or connect a local script. Works on desktop Electron, WebView2 and CEF apps, websites, Android apps over ADB, and other desktop apps through their official routes. Use whenever the user wants to change how an app or site looks or behaves for them.
 ---
 
 # appmod
 
-You change how an app or site looks and behaves for one user, without editing its files. Each
-recipe has a kind: `electron`, `web`, `android` or `native`; what is possible differs per kind
-(references/kinds.md). Every app gets a **recipe** folder (`recipes/<id>/`) that holds everything: how to start
-the app, the language pack, feature scripts and the pitfalls found on the way. The next person
-asking for the same app reuses the recipe instead of starting over.
+The user says what they want once. You deliver it working, checked on screen, behind one
+desktop shortcut (or a browser extension), and leave a recipe that the next person reuses.
 
-Project root: the folder containing `bin/appmod.mjs`. Commands below run from there with
-`node bin/appmod.mjs <command>` (Node 22+).
+Location: the folder that contains `bin/appmod.mjs`. Run `node bin/appmod.mjs <command>` from there (Node 22+); `help` lists every command.
 
-## Ground rules
+## 1. Understand the request once
 
-- Never modify, repack or re-sign the app's own files (asar, binaries, resources). Many apps
-  verify their integrity and refuse to start; updates would also undo it.
-- Never touch accounts, payments, telemetry, DRM or anti-cheat. Never automate actions the user
-  did not ask for.
-- If the app has an official language pack or setting for the requested language, use that and
-  stop. Tell the user where the setting is.
-- Some apps forbid client modification in their terms (Discord is one). Say so once before you
-  start and let the user decide. This tool is for personal use on the user's own machine.
-- Ask before adding any `actions` (they run local commands) and before changing system or user
-  environment variables.
-- Personal changes only last until the app updates. After an update, re-run inspect and check.
+- Find out yourself what you can: which apps are installed and running (names are often
+  misheard or shared by two products), versions, what the app already offers. Then ask
+  everything still unknown in one message, and work without further questions except the
+  confirmations below.
+- Sort the wish into one or more of: **language** (the interface in another language),
+  **content translation** (messages, posts, on demand), **look** (theme, colors, fonts, size,
+  spacing), **hide** (clutter), **control** (button, menu item, keyboard shortcut),
+  **behaviour** (a default, a small automatic step), **local tool** (needs a program on the
+  computer). One recipe holds all of them.
+- Confirm before: working on an app whose terms forbid client modification (Discord is one; say
+  it once and let the user decide); adding an action (runs local commands); sending the user's
+  content to a third party (translation services); quitting an app that is running; env vars
+  or files outside the started process; writing into an app or system folder.
+- Never: accounts, payments, paywalls or paid features, DRM, anti-cheat, other people's data,
+  actions toward other people (sending, posting, liking) the user did not trigger. Ad and
+  tracker blocking belongs to a dedicated blocker, not a recipe.
 
-## Workflow
+## 2. Cheapest route first
 
-1. **Identify the target and its kind.** Find what is actually installed and running; do not
-   guess from a name (two apps can share one). Record path or package, version, and the kind:
-   Electron (`resources/app.asar` next to the exe), a website, an Android app, or another
-   desktop app (references/new-app.md). Tell the user what that kind allows before starting
-   (references/kinds.md): Android and native apps get no injected buttons.
-2. **Reuse or create a recipe.** `node bin/appmod.mjs list`. If `recipes/<id>` exists, read its
-   `NOTES.md` first and compare `tested.version` with the installed version. Otherwise
-   `node bin/appmod.mjs new <id> --kind <kind>` and fill `app` in `recipe.json`
-   (format: docs/recipe-format.md).
-3. **Analyze before touching anything.** `node bin/appmod.mjs analyze <id>` reads the target
-   without running it (Android: shipped languages over ADB; native: REA; web: use `live`).
-   For Electron it reports fuses (is the asar hash-checked?), i18n library, locale files the
-   app already ships, env vars and switches (plugin/dev folders, `--lang`), the app's own
-   extension system, IPC, obfuscation. Read `analysis/report.md`, then follow single questions
-   with `search` and `asar cat`. An official route found here (a shipped language, `--lang`,
-   a plugin folder) beats injection. How to read the evidence: references/analysis.md.
-4. **Inspect.** The user must quit the app completely first (including the tray). Run
-   `node bin/appmod.mjs inspect <id>`. Read `inspect/page-*.json`: which i18n library was found,
-   which languages/namespaces exist, and how many strings were dumped. Details and failure
-   cases: references/electron.md.
-5. **Language** (if asked): follow references/language.md: choose `override` or `add`, translate
-   the dumped strings in chunks (sub-agents for large packs), keep keys and placeholders, then
-   `node bin/appmod.mjs check <id>` until it prints `ok`.
-6. **Features** (if asked): follow references/features.md: find stable selectors in the live
-   app (`live <id> anchors`, `live <id> html <css>`), write a feature script with the `appmod` API (docs/feature-api.md), and declare
-   `actions` for anything that needs to run outside the page.
-7. **Launch and verify.** Quit the app, run `node bin/appmod.mjs launch <id>`, and check in the
-   real window with `live`: `live <id> shot`, `live <id> text`, `live <id> errors`, and for a
-   feature `live <id> click <css>` then `shot` again (references/live.md). Check main screen,
-   settings, one dialog and each new feature, plus `recipes/<id>/appmod.log`. Not verified on
-   screen = not done.
-8. **Shortcut.** `node bin/appmod.mjs shortcut <id>` (Windows) creates a desktop shortcut. The
-   app's original shortcut keeps starting it unmodified.
-9. **Leave the recipe better.** Update `tested` (version, platform, date) and write every
-   pitfall you hit into `NOTES.md`. That file is what saves the next person hours.
+Stop at the first one that works and tell the user where it is:
 
-## Tools at a glance
+1. The app already does it: a setting, theme, shortcut editor, or a language it ships
+   (`analyze` lists shipped locale files; the app's language menu may just be hidden).
+2. An official route: the app's plugin or extension system, a documented switch (`--lang`),
+   an env var, a language folder the app reads.
+3. A recipe: the steps below.
 
-| Need | Command |
-|---|---|
-| What is this app made of, what can be hooked | `analyze <id>` (or `analyze --exe <path>` before a recipe exists) |
-| Where is X in the code | `search <id> <regex> [--files part] [--context n]` |
-| Read one shipped file | `asar <id> list [part]`, `asar <id> cat <path>` |
-| The app's strings | `inspect <id>` then `check <id>` |
-| What is on screen now, which selectors | `live <id> text`, `live <id> anchors`, `live <id> html <css>` |
-| A value the code hides (obfuscated) | `live <id> eval <expression>` |
-| Proof for the user | `live <id> shot <file.png>` |
+## 3. Identify the target and its kind
 
-| Web: same changes in the everyday browser | `extension <id>` |
-| Android/native: undo | `reset <id>` |
-| Native, .NET or APK code | `analyze <id>` (calls REA) or `rea <command> ...` |
+`node bin/appmod.mjs analyze --exe "<exe>"` prints the kind of a desktop app with evidence.
+Websites are `web`; apps on a phone or TV over ADB are `android`.
 
-appmod reads Electron code itself and hands native, .NET and APK code to REA. Games with
-anti-cheat or DRM, and anything that unlocks paid features, are off limits for every kind.
+| kind | Target | Can change |
+|---|---|---|
+| `electron` | Electron apps (Discord, Slack, VS Code forks, Qoder) | everything in the window |
+| `webview` | WebView2 apps (Tauri, Wails, web-UI Windows apps) and CEF apps | everything in the web view |
+| `web` | websites | everything on the matched pages |
+| `android` | installed apps over ADB | the app's language, only among languages it ships |
+| `native` | anything else, including WinUI, WPF, Qt | only what the app supports: language files, plugins, args, env |
+
+Say up front what the kind cannot do (no buttons on Android or native; WinUI/WPF/Qt windows
+cannot be injected) and offer the nearest possible thing. Details: references/kinds.md.
+
+## 4. The recipe
+
+- `list`. If the app has a recipe, read its `NOTES.md` and run `doctor <id>`: installed vs.
+  tested version, running state, and everything the recipe will run. Fix and reuse it.
+- Otherwise `new <id> --kind <kind>` and fill `app` (docs/recipe-format.md).
+- A recipe written by someone else: read the `doctor` list and its feature scripts before the
+  first launch; actions run commands on this computer.
+
+## 5. Read the target before changing it
+
+- electron: `analyze <id>`, then `search` / `asar cat` for single questions
+  (references/analysis.md).
+- webview and web: `launch <id>` (web: add `--headless` to stay off the user's screen while
+  exploring), then `live <id> anchors | text | html | eval` (references/live.md).
+- android: `analyze <id>` (shipped languages). native: `analyze <id>` (calls REA).
+- Desktop targets must be fully quit (tray and background too) before `launch`. `launch
+  --restart` quits them for you; use it only after the user agreed.
+
+## 6. Build
+
+- language: references/language.md (`inspect`, translate in chunks, `check` until ok).
+- look, hide, control, behaviour, content translation, local tool: references/features.md
+  (patterns and the `appmod` API).
+- `validate <id>` must print ok.
+
+## 7. Verify on screen
+
+Not seen working = not done. `launch <id>`, then:
+
+- `live <id> errors`: no errors; `i18n: true` and `missingKeys: 0` for language packs;
+  `injected` > 0 when you added controls.
+- `live <id> shot <file>` of the main screen, settings, one dialog, and each new control
+  after `live <id> click <css>`. Look at every screenshot.
+- `recipes/<id>/appmod.log`: actions ok, nothing refused.
+- Name what you could not check (tray, native menus, OS dialogs). Close what you started only
+  for checking (`live <id> quit`) unless the user wants it open.
+
+## 8. Deliver one click
+
+- `shortcut <id>`: a desktop shortcut for every kind. Double-click starts the target with the
+  recipe; if it is open without it, a dialog offers to restart it; if it already runs with
+  it, it comes to the front.
+- Websites in the user's everyday browser: `extension <id>` (no actions there).
+- Tell the user plainly: what changed, the shortcut's name, how to undo (start the app
+  normally, `reset <id>`, or remove the extension), what is not covered, and that after an
+  app update `doctor <id>` shows what to redo.
+
+## 9. Leave the recipe better
+
+Update `tested` (version, platform, date). Write every pitfall, and every selector with the
+reason it was chosen, into `NOTES.md`. That file saves the next person hours.
+
+## After an app update
+
+`doctor <id>` shows the version change. Launch, then `live <id> errors`: `missingKeys` counts
+strings the pack lacks. `live <id> missing` writes them to `inspect/missing.<code>.json`;
+translate, merge into the pack, `check`, launch again, and re-check every feature.
 
 ## When stuck
 
-- Debugging port never opens: the app is still running (tray), uses a launcher/updater exe
-  (point `exe` at the real binary, `*` in a path segment picks the newest folder), or restarts
-  itself on a new port (set `portFile`, references/electron.md).
-- Strings stay in the original language: they are not in the i18n library. Add them to the
-  `text` map (exact on-screen text), or they come from the main process (menus, tray), which
-  this tool does not reach.
-- Window freezes or closes on launch: increase `reloadDelayMs`; if a reload aborts startup or
-  the renderer is swapped at launch, set `reloadIfLate: false` (inject after load).
+- Port never opens: a copy still runs (tray, background helper), the exe is an updater stub or
+  hands off through a protocol handler (point `exe` at the real binary; `*` in a path segment
+  picks the newest folder), the app restarts itself on a new port (set `portFile`,
+  references/electron.md), or the window is not a web view at all.
+- Strings stay in the original language: they are outside the i18n library (add them to the
+  `text` map) or come from the main process (tray, native menus), which no recipe reaches.
+- Window freezes or closes on launch: raise `reloadDelayMs`; if a reload aborts startup or the
+  renderer is swapped, set `reloadIfLate: false`.
+- The app blocks debugging or closes on attach: stop and tell the user. Never defeat it.

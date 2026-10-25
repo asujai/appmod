@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "id": "template",
+  "name": "App Name",
+  "tested": null,
+  "app": {
+    "kind": "webview",
+    "engine": "webview2",
+    "exe": { "win32": "%PROGRAMFILES%/AppName/AppName.exe" },
+    "pageFilter": { "urlPrefix": "" },
+    "reloadIfLate": true,
+    "reloadDelayMs": 1000
+  },
+  "language": { "code": "xx", "name": "Language name", "i18n": { "library": "none" }, "text": "text/xx.json" },
+  "features": ["features/example.js"],
+  "actions": {}
+}

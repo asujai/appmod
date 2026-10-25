@@ -1,72 +1,99 @@
 #!/usr/bin/env node
 // appmod command line. Run `node bin/appmod.mjs help`.
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, cpSync } from 'node:fs'
-import { join, resolve } from 'node:path'
-import { execFileSync } from 'node:child_process'
-import { loadRecipe, projectRoot, templateDir } from '../core/recipe.mjs'
-import { launch, buildBundle, makeLogger } from '../core/launcher.mjs'
+import { join, resolve, sep } from 'node:path'
+import { loadRecipe, projectRoot, templateDir, INJECTABLE } from '../core/recipe.mjs'
+import { launch, buildBundle, makeLogger, isRunning } from '../core/launcher.mjs'
 import { evaluate } from '../core/cdp.mjs'
 import { samePlaceholders } from '../core/placeholders.mjs'
-import { analyzeApp, reportMarkdown, searchApp, findAppSource } from '../core/analyze.mjs'
+import { analyzeApp, reportMarkdown, searchApp, findAppSource, detectKind, analyzeWebview, webviewReportMarkdown } from '../core/analyze.mjs'
 import { openLive, liveScripts } from '../core/live.mjs'
 import { buildExtension } from '../core/extension.mjs'
 import { runRea, reaCommand } from '../core/rea.mjs'
 import { androidInfo, applyAppLocale, resetAppLocale, startApp, pullApk, apkLocales } from '../core/android.mjs'
 import { installFiles, resetFiles, startNative } from '../core/native.mjs'
+import { createShortcut, askYesNo, notify, stopApp } from '../core/desktop.mjs'
+import { installSkill, removeSkill, AGENTS } from '../core/setup.mjs'
+import { validateRecipe, validateAll, doctorEnvironment, doctorRecipe } from '../core/doctor.mjs'
 
-const HELP = `appmod: personal language packs and small features for installed desktop apps
+const HELP = `appmod: personal languages, looks and small features for the apps and sites you use
 
 Usage: node bin/appmod.mjs <command> [recipe] [options]
 
+ Start here:
+  setup [--agent a,b] [--remove]  install the appmod skill into your coding agents
+                             (${Object.keys(AGENTS).join(', ')}; default: the ones found on this machine)
+  doctor [recipe]            what this machine has; for a recipe: target, version vs. tested,
+                             running state, and everything the recipe will run
   list                       recipes in ./recipes
-  new <id> [--kind k]        create recipes/<id> from a template (electron, web, android, native)
+  new <id> [--kind k]        create recipes/<id> from a template (electron, webview, web, android, native)
 
- Understand the app (static, the app does not need to run):
-  analyze <recipe>           fuses, code location, i18n libraries, locale files, env vars, switches,
-                             plugin paths, IPC, obfuscation -> <recipe>/analysis/report.{md,json}
-        --exe <path>         analyze an exe directly (no recipe needed; prints the report)
-  search <recipe> <regex>    search the app's code with context (--files <part> --context <n> --max <n>
-                             --modules to include node_modules)
-  asar <recipe> list [part]  list files in the app's code
-  asar <recipe> cat <path>   print one file from the app's code
-  asar <recipe> extract      copy the app's code to <recipe>/analysis/source/ (read-only copy)
+ Understand the target (static, nothing runs):
+  analyze <recipe>           electron: fuses, i18n, locale files, env vars, switches, plugin paths,
+                             IPC, obfuscation; webview: engine and UI files; android: shipped
+                             languages; native: REA -> <recipe>/analysis/
+        --exe <path>         detect the kind of any exe and analyze it (no recipe needed)
+  search <recipe> <regex>    search an Electron app's code (--files <part> --context <n> --max <n> --modules)
+  asar <recipe> list [part]  list files in an Electron app's code
+  asar <recipe> cat <path>   print one file
+  asar <recipe> extract      read-only copy to <recipe>/analysis/source/
 
- Observe and drive the running app (after launch):
-  live <recipe> pages        windows the app has open
-  live <recipe> eval <js>    evaluate an expression in the app window (awaits promises)
+ Observe and drive the running target (after launch):
+  live <recipe> pages        windows / tabs
   live <recipe> text [css]   visible text of the page or of one element
+  live <recipe> anchors [css] elements with stable attributes (selectors for features)
   live <recipe> html <css>   outerHTML of one element
-  live <recipe> anchors [css] elements with stable attributes (for feature selectors)
+  live <recipe> eval <js>    evaluate in the page (promises are awaited)
   live <recipe> click <css>  click one element
-  live <recipe> shot <file>  screenshot of the window (PNG)
-  live <recipe> errors       appmod runtime errors in the window
-  live <recipe> quit         close the app (or the web recipe's browser window) gracefully
+  live <recipe> go <url>     open a URL in the current tab (web recipes)
+  live <recipe> shot <file>  screenshot (PNG)
+  live <recipe> errors       runtime errors, i18n hook, missing pack keys, injected controls
+  live <recipe> missing      write the strings the pack lacks (after an app update) to inspect/
+  live <recipe> quit         close the app or the recipe's browser window
         --page <part>        pick the window whose URL contains <part>
 
  Apply changes:
-  inspect <recipe>           start the app, detect its i18n setup, dump its strings to <recipe>/inspect/
+  inspect <recipe>           start the target, detect its i18n setup, dump its strings to <recipe>/inspect/
         --wait <s>           seconds to let the UI settle before reading (default 8)
-  check <recipe>             compare the language pack with the dumped strings (keys, placeholders)
-  launch <recipe>            start the app with the recipe applied (stays running until the app exits)
+  check <recipe>             language pack vs. dumped strings: missing keys, broken placeholders
+  validate [recipe|--all]    static checks: recipe loads, scripts parse, packs are well-formed
+  launch <recipe>            start the target with the recipe (stays running until it exits).
+                             If it already runs with the recipe: new tab (web) or bring to front.
+        --restart            quit a copy that runs without the recipe first (unsaved work may be lost)
+        --gui                ask before restarting, show errors in a dialog (used by shortcuts)
+        --headless           web: run the browser without a window (checks, CI)
         --force              start even if the app seems to be running already
         --allow-app-dir      native: allow install targets inside the app or system folders
+  shortcut <recipe>          desktop shortcut that launches the recipe: one click for the user
+        --name <text>        shortcut name (default "<App> (<Language>)" or "<App> (appmod)")
+  extension <recipe>         web: unpacked browser extension in <recipe>/dist/extension
   reset <recipe>             undo what launch installed (android app language, native files)
-  extension <recipe>         web recipes: build an unpacked browser extension in <recipe>/dist/extension
   rea <command> [args]       run REA for targets appmod does not read itself (native, .NET, APK)
-  shortcut <recipe>          create a desktop shortcut that launches the app with the recipe (Windows)
-        --name <text>        shortcut name (default "<App> (<Language>)")
 
 <recipe> is a folder path or an id under ./recipes.`
 
-const [command, target, ...rest] = process.argv.slice(2)
-const option = (name, fallback) => {
-  const i = rest.indexOf(`--${name}`)
-  return i === -1 ? fallback : rest[i + 1] ?? true
+// Options may come anywhere (`launch --restart qoder`, `setup --agent claude`). These take a
+// value; a following --flag is never taken as one.
+const VALUE_OPTIONS = new Set(['agent', 'kind', 'exe', 'files', 'context', 'max', 'page', 'wait', 'name'])
+const argv = process.argv.slice(2)
+const command = argv[0]
+const opts = {}
+const positional = []
+for (let i = 1; i < argv.length; i++) {
+  const a = argv[i]
+  if (a.startsWith('--') && a.length > 2) {
+    const name = a.slice(2)
+    const next = argv[i + 1]
+    opts[name] = VALUE_OPTIONS.has(name) && next !== undefined && !next.startsWith('--') ? argv[++i] : true
+  } else positional.push(a)
 }
-const flag = name => rest.includes(`--${name}`)
+const [target, ...rest] = positional
+const GUI = opts.gui === true
+const option = (name, fallback) => (typeof opts[name] === 'string' ? opts[name] : fallback)
+const flag = name => opts[name] !== undefined
 
 const recipeDir = value => {
-  if (!value) fail('missing <recipe>')
+  if (!value || value.startsWith('--')) fail('missing <recipe>')
   const local = join(projectRoot, 'recipes', value)
   return existsSync(join(local, 'recipe.json')) ? local : resolve(value)
 }
@@ -74,21 +101,69 @@ const readJson = file => JSON.parse(readFileSync(file, 'utf8'))
 const writeJson = (file, data) => writeFileSync(file, JSON.stringify(data, null, 1) + '\n')
 function fail(message) {
   console.error(`appmod: ${message}`)
+  // Started from a shortcut there is no console: show the error instead of failing silently.
+  if (GUI) notify('appmod', message)
   process.exit(1)
+}
+const mark = ok => (ok ? 'ok ' : '!! ')
+
+// When the app already runs without the recipe: quit it if the user agreed (--restart, or yes
+// in the dialog). Returns true when it is gone.
+async function makeRoom(recipe) {
+  if (flag('restart')) return stopApp(recipe.app.exeName)
+  if (!GUI) return false
+  const yes = askYesNo(`${recipe.name}`, `${recipe.name} is already running without your changes.\n\nRestart it with them now? Unsaved work in ${recipe.name} may be lost.`)
+  // No dialog tool on this system: fail() tells the user what to do instead.
+  if (yes === null) return false
+  if (!yes) process.exit(0)
+  return stopApp(recipe.app.exeName)
 }
 
 const commands = {
   help: () => console.log(HELP),
 
+  setup() {
+    const agent = option('agent', '')
+    const agents = typeof agent === 'string' && agent ? agent.split(',').map(a => a.trim()) : []
+    if (flag('remove')) {
+      const removed = removeSkill({ agents })
+      console.log(removed.length ? removed.map(r => `removed ${r.dir}`).join('\n') : 'no appmod skill installed by setup')
+      return
+    }
+    const results = installSkill({ agents, force: flag('force') })
+    if (!results.length) {
+      console.log(`No coding agent found in your home folder. Pick one: setup --agent ${Object.keys(AGENTS).join('|')}`)
+      return
+    }
+    for (const r of results) console.log(`${r.status === 'installed' ? 'installed' : r.status}: ${r.label} -> ${r.dir}`)
+    console.log(`\nNow ask your agent, in your own words, e.g. "Add Turkish to <app>" or "Put a dark theme on <site>".
+Re-run setup after updating appmod.`)
+  },
+
+  async doctor() {
+    if (!target) {
+      for (const r of doctorEnvironment()) console.log(`${mark(r.ok)}${r.name.padEnd(28)} ${r.detail}`)
+      return
+    }
+    const recipe = loadRecipe(recipeDir(target))
+    const { rows, trust } = await doctorRecipe(recipe)
+    console.log(`${recipe.name} (${recipe.id}, ${recipe.kind})`)
+    for (const r of rows) console.log(`${mark(r.ok)}${r.name.padEnd(14)} ${r.detail}`)
+    console.log('\nThis recipe will:')
+    for (const t of trust) console.log(`  - ${t}`)
+    if (!trust.length) console.log('  - nothing (empty recipe)')
+  },
+
   list() {
     const dir = join(projectRoot, 'recipes')
-    for (const id of readdirSync(dir).filter(n => !n.startsWith('_'))) {
+    for (const id of readdirSync(dir).filter(n => !n.startsWith('_') && existsSync(join(dir, n, 'recipe.json')))) {
       try {
         const r = loadRecipe(join(dir, id))
         const t = r.tested ? `tested ${r.tested.version} on ${r.tested.platform}` : 'untested'
-        console.log(`${id.padEnd(20)} ${r.kind.padEnd(8)} ${r.name} · ${r.language ? r.language.code : 'no language'} · ${t}`)
+        const what = [r.language && `language ${r.language.code}`, r.features.length && `${r.features.length} feature(s)`].filter(Boolean).join(', ') || 'empty'
+        console.log(`${id.padEnd(20)} ${r.kind.padEnd(8)} ${r.name} · ${what} · ${t}`)
       } catch (error) {
-        console.log(`${id.padEnd(20)} INVALID: ${error.message.split('\n')[0]}`)
+        console.log(`${id.padEnd(20)} INVALID: ${error.message.split('\n')[1] || error.message}`)
       }
     }
   },
@@ -99,25 +174,43 @@ const commands = {
     if (existsSync(dest)) fail(`${dest} already exists`)
     const kind = option('kind', 'electron')
     const template = kind === 'electron' ? templateDir : `${templateDir}-${kind}`
-    if (!existsSync(template)) fail(`--kind must be electron, web, android or native`)
+    if (!existsSync(template)) fail(`--kind must be electron, webview, web, android or native`)
     cpSync(template, dest, { recursive: true })
     const file = join(dest, 'recipe.json')
     writeFileSync(file, readFileSync(file, 'utf8').replace(/"id": "[^"]*"/, `"id": "${target}"`))
-    const next = { electron: 'fill app.exe, then: analyze', web: 'fill startUrl and matches, then: launch', android: 'fill app.package, then: analyze', native: 'fill app.exe and install, then: analyze' }
+    const next = {
+      electron: 'fill app.exe, then: analyze',
+      webview: 'fill app.exe and app.engine (analyze --exe tells you), then: launch',
+      web: 'fill startUrl and matches, then: launch',
+      android: 'fill app.package, then: analyze',
+      native: 'fill app.exe and install, then: analyze',
+    }
     console.log(`created ${dest} (${kind})\nnext: ${next[kind]} ${target}`)
   },
 
   analyze() {
-    const exe = target === '--exe' ? rest[0] : option('exe')
+    const exe = option('exe')
     if (exe && exe !== true) {
-      console.log(reportMarkdown(analyzeApp(resolve(exe))))
+      const path = resolve(exe)
+      const kind = detectKind(path)
+      console.log(`kind: ${kind.kind}${kind.engine ? ` (engine ${kind.engine})` : ''} — ${kind.evidence.join('; ')}\n`)
+      if (kind.kind === 'electron') console.log(reportMarkdown(analyzeApp(path)))
+      else if (kind.kind === 'webview') console.log(webviewReportMarkdown(analyzeWebview(path, kind.engine)))
+      else console.log('Not a web-technology app: no injection. Look for official routes (language folder, plugins, documented switches) and read its code with REA: node bin/appmod.mjs rea inspect-desktop-application <folder> --json')
       return
     }
     const recipe = loadRecipe(recipeDir(target))
     mkdirSync(recipe.analysisDir, { recursive: true })
+    if (recipe.kind === 'webview') {
+      const report = analyzeWebview(recipe.app.exe, recipe.app.engine)
+      writeJson(join(recipe.analysisDir, 'report.json'), report)
+      const md = webviewReportMarkdown(report)
+      writeFileSync(join(recipe.analysisDir, 'report.md'), md)
+      console.log(md)
+      return
+    }
     if (recipe.kind !== 'electron') return analyzeWithRea(recipe)
     const report = analyzeApp(recipe.app.exe)
-    mkdirSync(recipe.analysisDir, { recursive: true })
     writeJson(join(recipe.analysisDir, 'report.json'), report)
     const md = reportMarkdown(report)
     writeFileSync(join(recipe.analysisDir, 'report.md'), md)
@@ -128,7 +221,7 @@ const commands = {
   search() {
     const recipe = loadRecipe(recipeDir(target))
     needKind(recipe, 'electron')
-    if (!rest[0] || rest[0].startsWith('--')) fail('search <recipe> <regex>')
+    if (!rest[0]) fail('search <recipe> <regex>')
     const { hits, truncated } = searchApp(recipe.app.exe, rest[0], {
       files: option('files', ''),
       context: Number(option('context', 120)),
@@ -151,11 +244,16 @@ const commands = {
       if (!arg) fail('asar <recipe> cat <path>')
       process.stdout.write(source.read(arg))
     } else if (sub === 'extract') {
-      const dest = join(recipe.analysisDir, 'source')
+      const dest = resolve(recipe.analysisDir, 'source')
       let n = 0
       for (const f of source.list()) {
         if (!flag('modules') && f.path.includes('node_modules/')) continue
-        const out = join(dest, f.path)
+        const out = resolve(dest, f.path)
+        // Archive entry names come from the app: never let "../" write outside the copy.
+        if (!out.startsWith(dest + sep)) {
+          console.log(`skipped ${f.path} (points outside the copy)`)
+          continue
+        }
         mkdirSync(join(out, '..'), { recursive: true })
         writeFileSync(out, source.read(f.path))
         n++
@@ -166,8 +264,8 @@ const commands = {
 
   async live() {
     const recipe = loadRecipe(recipeDir(target))
-    needKind(recipe, 'electron', 'web')
-    const [sub, arg] = rest.filter((a, i) => !a.startsWith('--') && !rest[i - 1]?.startsWith('--'))
+    needKind(recipe, ...INJECTABLE)
+    const [sub, arg] = rest
     const session = await openLive(recipe, { match: option('page', '') }).catch(error => fail(error.message))
     try {
       if (sub === 'quit') {
@@ -180,6 +278,24 @@ const commands = {
         mkdirSync(join(file, '..'), { recursive: true })
         await session.screenshot(file)
         console.log(file)
+      } else if (sub === 'go') {
+        if (!arg) fail('live <recipe> go <url>')
+        await session.go(arg)
+        console.log(`opened ${arg}`)
+      } else if (sub === 'missing') {
+        // After an app update: the strings the pack lacks, read from the running app itself, so
+        // no separate inspect run is needed. Same file `check` writes.
+        if (!recipe.language?.pack) fail('missing: the recipe has no language pack')
+        const { base, namespace } = recipe.language.i18n
+        const original = await session.eval(`__appmod.dumpOriginal(${JSON.stringify(base)}, ${JSON.stringify(namespace)})`)
+        const keys = await session.eval('__appmod.missing()')
+        const missing = Object.fromEntries(keys.map(k => [k, original[k]]))
+        mkdirSync(recipe.inspectDir, { recursive: true })
+        // Refresh the dump too, so `check` compares against what the app has now.
+        writeJson(join(recipe.inspectDir, `strings.${base}.${namespace}.json`), original)
+        const file = resolve(arg || join(recipe.inspectDir, `missing.${recipe.language.code}.json`))
+        writeJson(file, missing)
+        console.log(`${keys.length} missing key(s) written to ${file} (the app has ${Object.keys(original).length} strings now). Translate the values, merge them into ${recipe.language.pack}, run check.`)
       } else if (sub === 'eval') {
         if (!arg) fail('live <recipe> eval <expression>')
         console.log(JSON.stringify(await session.eval(arg), null, 1))
@@ -187,7 +303,7 @@ const commands = {
         if ((sub === 'html' || sub === 'click' || sub === 'count') && !arg) fail(`live <recipe> ${sub} <css>`)
         const value = await session.eval(liveScripts[sub](arg))
         console.log(typeof value === 'string' ? value : JSON.stringify(value, null, 1))
-      } else fail('live <recipe> pages|eval|text|html|anchors|click|shot|errors|quit')
+      } else fail('live <recipe> pages|text|anchors|html|eval|click|go|shot|errors|missing|quit')
     } finally {
       session.close()
     }
@@ -197,7 +313,7 @@ const commands = {
   async inspect() {
     const recipe = loadRecipe(recipeDir(target))
     if (recipe.kind === 'android') return console.log(JSON.stringify(androidInfo(recipe), null, 1))
-    needKind(recipe, 'electron', 'web')
+    needKind(recipe, ...INJECTABLE)
     const wait = Number(option('wait', 8)) * 1000
     mkdirSync(recipe.inspectDir, { recursive: true })
     const log = makeLogger(recipe.logFile)
@@ -209,6 +325,7 @@ const commands = {
       launch(recipe, {
         bundle,
         force: flag('force'),
+        headless: flag('headless'),
         log,
         async onPage(cdp, sessionId, info) {
           if (recipe.app.urlPrefix && !info.url.startsWith(recipe.app.urlPrefix)) return
@@ -295,6 +412,18 @@ const commands = {
     console.log('ok')
   },
 
+  validate() {
+    const results = !target || target === '--all' ? validateAll(join(projectRoot, 'recipes')) : [validateRecipe(recipeDir(target))]
+    let bad = 0
+    for (const r of results) {
+      if (r.problems.length) bad++
+      console.log(`${mark(!r.problems.length)}${r.id}`)
+      for (const p of r.problems) console.log(`     problem: ${p}`)
+      for (const w of r.warnings) console.log(`     note: ${w}`)
+    }
+    if (bad) fail(`${bad} recipe(s) with problems`)
+  },
+
   async launch() {
     const recipe = loadRecipe(recipeDir(target))
     if (recipe.kind === 'android') {
@@ -304,15 +433,21 @@ const commands = {
       return
     }
     if (recipe.kind === 'native') {
+      // Arguments and env reach only a fresh process; a running single-instance app ignores them.
+      if (!flag('force') && isRunning(recipe.app.exeName) && !(await makeRoom(recipe))) {
+        fail(`${recipe.app.exeName} is already running. Quit it first, or run launch --restart.`)
+      }
       const installed = installFiles(recipe, { allowAppDir: flag('allow-app-dir') })
       const pid = startNative(recipe)
       console.log(`started ${recipe.app.exe} (pid ${pid})${installed.length ? `; ${installed.length} installed item(s), undo with: node bin/appmod.mjs reset ${recipe.id}` : ''}`)
       return
     }
-    await launch(recipe, { force: flag('force') }).catch(error => {
+    if (flag('headless') && recipe.kind !== 'web') fail('--headless is for web recipes')
+    const result = await launch(recipe, { force: flag('force'), headless: flag('headless'), beforeStart: () => makeRoom(recipe) }).catch(error => {
       makeLogger(recipe.logFile)(`failed: ${error.message}`)
       fail(error.message)
     })
+    if (result?.reused) console.log(`${recipe.name} already runs with the recipe; ${recipe.kind === 'web' ? 'opened a new tab' : 'brought it to the front'}.`)
     process.exit(0)
   },
 
@@ -321,7 +456,7 @@ const commands = {
     if (recipe.kind === 'android') console.log(`app language cleared: ${resetAppLocale(recipe) ?? '(follows system)'}`)
     else if (recipe.kind === 'native') console.log(`removed ${resetFiles(recipe).length} installed item(s), backups restored`)
     else if (recipe.kind === 'web') console.log(`nothing installed. The browser profile stays at ${recipe.app.profile}; delete that folder to remove its logins and data.`)
-    else console.log('nothing to reset: electron recipes change the app only while appmod launches it.')
+    else console.log(`nothing to reset: ${recipe.kind} recipes change the app only while appmod launches it. Start the app normally to get it unchanged.`)
   },
 
   extension() {
@@ -334,32 +469,20 @@ load it in chrome://extensions (or edge://extensions) -> Developer mode -> Load 
 
   rea() {
     if (!target) fail('rea <command> [args...]: runs REA (installed, APPMOD_REA, or npx). Example: rea doctor --json')
-    const { how, output } = runRea([target, ...rest])
+    // REA gets its arguments untouched, flags included.
+    const { how, output } = runRea(argv.slice(1))
     process.stdout.write(output)
     console.error(`(via ${how})`)
   },
 
   shortcut() {
-    if (process.platform !== 'win32') fail('shortcut is Windows-only for now; run `node bin/appmod.mjs launch <recipe>` from your launcher instead')
     const recipe = loadRecipe(recipeDir(target))
-    if (recipe.kind === 'android') fail('shortcuts are for desktop recipes')
-    const name = option('name', `${recipe.name}${recipe.language?.name ? ` (${recipe.language.name})` : ''}`)
-    const dir = join(process.env.LOCALAPPDATA, 'appmod')
-    mkdirSync(dir, { recursive: true })
-    const vbs = join(dir, `launch-${recipe.id}.vbs`)
-    const q = s => s.replace(/"/g, '""')
-    // A .vbs wrapper starts node without a console window.
-    writeFileSync(
-      vbs,
-      `' Generated by appmod: starts ${q(recipe.name)} with recipe ${recipe.id}\r\n` +
-        `CreateObject("WScript.Shell").Run """${q(process.execPath)}"" ""${q(join(projectRoot, 'bin', 'appmod.mjs'))}"" launch ""${q(recipe.root)}""", 0, False\r\n`,
-    )
-    const ps = `$d=[Environment]::GetFolderPath('Desktop');$s=(New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $d $env:APPMOD_NAME)+'.lnk');$s.TargetPath='wscript.exe';$s.Arguments='"'+$env:APPMOD_VBS+'"';$s.IconLocation=$env:APPMOD_ICON+',0';$s.Description='appmod';$s.Save();Write-Output (Join-Path $d $env:APPMOD_NAME)`
-    const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', ps], {
-      encoding: 'utf8',
-      env: { ...process.env, APPMOD_NAME: name, APPMOD_VBS: vbs, APPMOD_ICON: recipe.app.exe },
-    })
-    console.log(`shortcut: ${out.trim()}.lnk -> ${vbs}`)
+    const label = recipe.language?.name && recipe.language.i18n?.library !== 'none' ? recipe.language.name : 'appmod'
+    const name = option('name', `${recipe.name} (${label})`)
+    const icon = recipe.kind === 'android' ? null : recipe.app.exe
+    const files = createShortcut(recipe, { name: String(name), icon })
+    console.log(`shortcut: ${files[0]}${files.length > 1 ? `\n  (${files.slice(1).join(', ')})` : ''}`)
+    console.log('Double-click it to start with the recipe. If the app is already open without it, it asks to restart.')
   },
 }
 
@@ -404,11 +527,15 @@ function analyzeWithRea(recipe) {
     if (flag('code')) viaRea('rea-android-package.json', ['inspect-android-package', out])
     else console.log('APK code analysis (REA + JADX) skipped; add --code to run it.')
   } else if (recipe.kind === 'web') {
-    console.log('web: the site code is read live. Run `live <id> anchors` / `eval`; for a static bundle report, with the recipe launched:')
+    console.log('web: the site code is read live. Run `launch <id> --headless`, then `live <id> anchors` / `eval`. For a static bundle report:')
     console.log(`  node bin/appmod.mjs rea list-browser-targets <endpoint>  then  rea analyze-web-bundle <endpoint> <targetId>`)
   }
 }
 
 const run = commands[command || 'help']
 if (!run) fail(`unknown command "${command}"\n\n${HELP}`)
-await run()
+try {
+  await run()
+} catch (error) {
+  fail(error.message)
+}

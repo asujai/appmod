@@ -1,8 +1,9 @@
 // Static analysis of an Electron app's code for appmod: where its strings live, which languages
 // it ships, how it starts, and which hooks (env vars, switches, plugin folders, IPC) exist.
 // Everything here is a static observation of shipped code, not proof of runtime behaviour.
-import { existsSync, readdirSync } from 'node:fs'
-import { join, basename, dirname } from 'node:path'
+import { existsSync, readdirSync, readFileSync, statSync, openSync, readSync, closeSync, fstatSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { join, basename, dirname, relative } from 'node:path'
 import { findAppSource } from './asar.mjs'
 import { readFuses } from './fuses.mjs'
 
@@ -45,6 +46,8 @@ const FLAGS = {
   nodeIntegrationOn: /nodeIntegration\s*:\s*(?:!0|true)/,
   webviewTag: /webviewTag\s*:\s*(?:!0|true)/,
   remoteUi: /\.loadURL\(\s*["'`]https?:\/\//,
+  // The app looks for the debugging switch itself: it may refuse to start or strip it.
+  debugSwitchChecked: /["'`]remote-debugging-(?:port|pipe)["'`]/,
 }
 
 const PLUGIN_HINT = /["'`]([^"'`\n]{0,80}(?:plugins?|extensions?|addons?|dev-extensions)[\\/][^"'`\n]{0,80})["'`]/gi
@@ -180,6 +183,7 @@ function suggest(r) {
   if (libs.includes('Electron app.getLocale') || libs.includes('VS Code NLS')) s.push('The app reads the OS/Electron locale: try starting it with --lang=<code> (recipe app.args) before translating anything.')
   if (r.flags.remoteUi) s.push('The main window loads a web URL: most UI code is downloaded at runtime, not in app.asar. Static results cover only the shell; study the UI with `appmod live` (anchors, eval).')
   if (r.flags.singleInstance) s.push('Single-instance app: it must be fully quit (tray too) before appmod launch.')
+  if (r.flags.debugSwitchChecked) s.push('The code mentions the remote-debugging switch: the app may refuse or remove it. If launch never connects, check these files and stop; do not try to defeat it.')
   if (r.flags.devtoolsBlocked) s.push('The app closes DevTools when opened. CDP attach may still work; if pages never report ready, stop and do not try to defeat it.')
   if (r.flags.chromeExtensions) s.push('The app can load Chrome extensions: a feature might be packaged as an extension instead of an injected script.')
   if (r.hooks.envVarsOfInterest.length) s.push(`Env vars worth checking (plugin/dev/feature switches): ${r.hooks.envVarsOfInterest.slice(0, 12).map(e => e.name).join(', ')}. Ask the user before setting any.`)
@@ -236,3 +240,128 @@ export function searchApp(exe, pattern, { files: filter = '', context = 120, max
 }
 
 export { findAppSource }
+
+// ---------- kind detection and WebView2 / CEF apps ----------
+
+// True if any of the ASCII strings occurs in the file (also as UTF-16LE, as in PE resources).
+function fileContains(file, needles) {
+  const patterns = needles.flatMap(n => [Buffer.from(n, 'latin1'), Buffer.from(n, 'utf16le')])
+  const longest = Math.max(...patterns.map(p => p.length))
+  let fd
+  try {
+    fd = openSync(file, 'r')
+    const size = fstatSync(fd).size
+    const chunk = Buffer.alloc(8 * 1024 * 1024)
+    for (let pos = 0; pos < size; pos += chunk.length - longest) {
+      const n = readSync(fd, chunk, 0, chunk.length, pos)
+      const view = chunk.subarray(0, n)
+      if (patterns.some(p => view.includes(p))) return true
+      if (n < chunk.length) break
+    }
+  } catch {
+    return false
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+  }
+  return false
+}
+
+// What kind of target an executable is: electron, webview (webview2 or cef) or native.
+export function detectKind(exe) {
+  if (!existsSync(exe)) throw new Error(`not found: ${exe}`)
+  const dir = dirname(exe)
+  const near = name => existsSync(join(dir, name))
+  const { source } = findAppSource(exe)
+  if (source) return { kind: 'electron', evidence: [`app code: ${source.root}`] }
+  if (near('libcef.dll') || near('libcef.so') || existsSync(join(dir, '..', 'Frameworks', 'Chromium Embedded Framework.framework'))) {
+    return { kind: 'webview', engine: 'cef', evidence: ['Chromium Embedded Framework (libcef) next to the exe'] }
+  }
+  const wv2Files = ['WebView2Loader.dll', 'Microsoft.Web.WebView2.Core.dll'].filter(near)
+  // WinUI 3 always bundles WebView2 for its WebView2 control; the main UI is XAML.
+  const winui = ['Microsoft.UI.Xaml.Controls.dll', 'Microsoft.UI.Xaml.winmd', 'Microsoft.WinUI.dll', 'Microsoft.WindowsAppRuntime.Bootstrap.dll'].filter(near)
+  if (wv2Files.length && winui.length) {
+    return { kind: 'native', embeds: 'webview2', evidence: [`WinUI 3 app (${winui[0]}): its main UI is XAML and cannot be injected into; WebView2 is bundled for embedded pages only`] }
+  }
+  if (wv2Files.length) {
+    const host = ['Microsoft.Web.WebView2.Wpf.dll', 'Microsoft.Web.WebView2.WinForms.dll'].filter(near)
+    const evidence = wv2Files.map(f => `${f} next to the exe`)
+    if (host.length) evidence.push(`${host[0]}: a WPF/WinForms window hosts WebView2, so some of the UI may be native; launch and \`live <id> pages\` show what is web`)
+    return { kind: 'webview', engine: 'webview2', evidence }
+  }
+  if (fileContains(exe, ['CreateCoreWebView2Environment', 'WebView2Loader'])) {
+    return { kind: 'webview', engine: 'webview2', evidence: ['the exe links WebView2 itself (Tauri, Wails and similar)'] }
+  }
+  if (readFuses(exe).found) return { kind: 'electron', evidence: ['Electron fuses found, but no app.asar or resources/app'] }
+  return { kind: 'native', evidence: ['no Electron, WebView2 or CEF marker next to or inside the exe'] }
+}
+
+// Product version of an executable (Windows file version, macOS bundle version), or null.
+export function fileVersion(exe) {
+  try {
+    if (process.platform === 'win32') {
+      const out = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '(Get-Item -LiteralPath $env:APPMOD_EXE).VersionInfo.ProductVersion'], { encoding: 'utf8', windowsHide: true, env: { ...process.env, APPMOD_EXE: exe } })
+      return out.trim().split('+')[0] || null
+    }
+    if (exe.includes('.app/')) {
+      const plist = readFileSync(join(exe.slice(0, exe.indexOf('.app/') + 4), 'Contents', 'Info.plist'), 'utf8')
+      return /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/.exec(plist)?.[1] || null
+    }
+  } catch {}
+  return null
+}
+
+// Local UI files (html/js/css) shipped next to the exe, if any. Many WebView2/CEF apps embed
+// their UI or load it from the web instead; then `live` is the way to read it.
+function localUiFiles(dir, limit = 20000) {
+  const found = { html: [], js: 0, css: 0 }
+  let seen = 0
+  const walk = (abs, depth) => {
+    if (depth > 5 || seen > limit) return
+    let names
+    try {
+      names = readdirSync(abs)
+    } catch {
+      return
+    }
+    for (const name of names) {
+      if (++seen > limit) return
+      const p = join(abs, name)
+      let st
+      try {
+        st = statSync(p)
+      } catch {
+        continue
+      }
+      if (st.isDirectory()) {
+        if (!/^(node_modules|locales|EBWebView|\.git)$/i.test(name)) walk(p, depth + 1)
+      } else if (/\.html?$/i.test(name)) found.html.push(relative(dir, p).split('\\').join('/'))
+      else if (/\.m?js$/i.test(name)) found.js++
+      else if (/\.css$/i.test(name)) found.css++
+    }
+  }
+  walk(dir, 0)
+  return found
+}
+
+export function analyzeWebview(exe, engine) {
+  const ui = localUiFiles(dirname(exe))
+  const report = { exe, generatedAt: new Date().toISOString(), kind: 'webview', engine, version: fileVersion(exe), ui: { html: ui.html.slice(0, 30), htmlCount: ui.html.length, js: ui.js, css: ui.css }, suggestions: [], unknowns: [] }
+  const s = report.suggestions
+  if (engine === 'webview2') {
+    s.push('launch opens the debugging port through WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS for the started process only (nothing system-wide). WebView2 appends it to the app\'s own arguments.')
+    s.push('Quit the app completely first (tray, background helpers): a WebView2 browser process that is already running for this app ignores new arguments.')
+  } else {
+    s.push('launch passes --remote-debugging-port. CEF apps can disable it in code (CefSettings.remote_debugging_port); if no port opens, there is no supported route.')
+  }
+  s.push(ui.html.length ? `The UI ships as local files (${ui.html.length} html, ${ui.js} js): read them with ordinary tools, never edit them.` : 'No local UI files: the UI is embedded in the binary or loaded from the web. Read it live: launch, then `live <id> anchors` / `text` / `eval`.')
+  s.push('There is no i18n analysis for these apps: after launch, `inspect` reports any i18next instance; otherwise use the text map.')
+  report.unknowns.push('Static analysis of webview apps is shallow by design; runtime observation with `live` is the source of truth.')
+  return report
+}
+
+export function webviewReportMarkdown(r) {
+  const lines = [`# Analysis: ${basename(r.exe)}`, '', `Generated ${r.generatedAt}.`, '', '## Summary', '', `- exe: \`${r.exe}\``, `- kind: webview (${r.engine})`, `- version: ${r.version || 'unknown'}`, `- local UI files: ${r.ui.htmlCount} html, ${r.ui.js} js, ${r.ui.css} css`]
+  if (r.ui.html.length) lines.push('', '## HTML files', '', ...r.ui.html.map(h => `- \`${h}\``))
+  lines.push('', '## Suggestions', '', ...r.suggestions.map(x => `- ${x}`), '', '## Unknowns and limits', '', ...r.unknowns.map(u => `- ${u}`))
+  return lines.join('\n') + '\n'
+}

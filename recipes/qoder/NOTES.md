@@ -1,7 +1,8 @@
 # Qoder (Alibaba) — recipe notes
 
 Electron agent app, the white-logo `Qoder` (not the green `Qoder IDE`, which is a VS Code fork).
-Ships only English and Chinese. Tested with 0.4.8 on Windows 11.
+Ships only English and Chinese. Tested with 0.4.8 on Windows 11 (2026-10-21, re-checked
+2026-10-25).
 
 ## What works
 
@@ -25,8 +26,16 @@ Ships only English and Chinese. Tested with 0.4.8 on Windows 11.
 
 ## After a Qoder update
 
-Run `inspect`, then `check`. New keys land in `inspect/missing.tr.json`; translate them and
-merge into `packs/tr.json`. Update `tested` here when done.
+`doctor qoder` shows the version. Launch, then `live qoder errors`: `missingKeys` counts
+strings Qoder registers that the pack lacks. `live qoder missing` writes them to
+`inspect/missing.tr.json` (and refreshes the strings dump); translate, merge into
+`packs/tr.json`, `check`, launch again until `missingKeys` is 0. Update `tested` here when done.
+
+2026-10-25: still 0.4.8, but the running app registered 446 keys the 2026-10-22 dump did not
+have (settings, Dynamic Island, composer, extensions, error messages). Either they load
+lazily or Qoder updated its renderer without a version bump; the runtime count catches both,
+so check `missingKeys` after every launch that follows an update. All 446 were translated
+(9,628 keys now), placeholders checked, Settings verified on screen.
 
 ## Related personal add-on (not part of this recipe)
 
