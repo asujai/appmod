@@ -31,6 +31,7 @@ export function validateRecipe(dir) {
   if (!template && recipe.id !== folder) problems.push(`id "${recipe.id}" differs from the folder name "${folder}"`)
   const notes = join(dir, 'NOTES.md')
   if (!existsSync(notes) || !readFileSync(notes, 'utf8').trim()) problems.push('NOTES.md is missing or empty (say what was tested and what broke)')
+  if (recipe.app.unavailable) warnings.push(`not usable on this platform: ${recipe.app.unavailable}`)
   if (!template && !recipe.tested) warnings.push('tested is null: record version, platform and date once it works')
   for (const file of recipe.features) {
     try {
@@ -144,7 +145,7 @@ export async function doctorRecipe(recipe) {
     const devices = tryRun(recipe.app.adb, ['devices'])
     add('adb', !!devices, devices ? devices.split('\n').slice(1).filter(Boolean).join('; ') || 'no device connected' : 'adb not found')
   } else {
-    add('target', existsSync(recipe.app.exe), recipe.app.exe || '(no exe for this platform)')
+    add('target', !recipe.app.unavailable && existsSync(recipe.app.exe), recipe.app.unavailable || recipe.app.exe)
   }
   const versions = existsSync(recipe.app.exe || '') ? installedVersions(recipe) : []
   const tested = recipe.tested?.version

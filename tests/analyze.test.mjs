@@ -97,7 +97,8 @@ test('asar extract never writes outside the copy', () => {
 test('options may come before the recipe and never swallow a flag', () => {
   const res = spawnSync(process.execPath, [join(projectRoot, 'bin', 'appmod.mjs'), 'validate', '--gui', 'qoder'], { encoding: 'utf8' })
   assert.equal(res.status, 0, res.stderr)
-  assert.deepEqual(res.stdout.trim().split('\n'), ['ok qoder'])
+  // One recipe validated (on other platforms a note line may follow).
+  assert.deepEqual(res.stdout.trim().split('\n').filter(l => !l.startsWith(' ')), ['ok qoder'])
 })
 
 test('analyzer finds i18n, locales, hooks and flags', () => {

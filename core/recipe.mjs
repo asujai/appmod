@@ -5,7 +5,8 @@ import { join, resolve, isAbsolute, dirname, basename, normalize } from 'node:pa
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
-const PLATFORM = process.platform
+// APPMOD_PLATFORM lets tests read recipes as another platform would.
+const PLATFORM = process.env.APPMOD_PLATFORM || process.platform
 
 // %VAR% (Windows style), $VAR / ${VAR} and a leading ~ are expanded.
 export function expand(value) {
@@ -153,29 +154,31 @@ function resolveApp(kind, a, root, errors) {
   if (!Array.isArray(base.args) || base.args.some(x => typeof x !== 'string')) errors.push('app.args must be a list of strings')
   if (kind === 'webview') {
     if (!ENGINES.includes(a.engine)) errors.push(`webview recipes need app.engine: ${ENGINES.join(' or ')}`)
-    if (a.engine === 'webview2' && PLATFORM !== 'win32') errors.push('WebView2 exists on Windows only')
   }
+  // A recipe made for another platform is still valid; it just cannot start here.
+  // `unavailable` says why, and launch/inspect/analyze refuse with that message.
+  let unavailable = kind === 'webview' && a.engine === 'webview2' && PLATFORM !== 'win32' ? 'WebView2 exists on Windows only' : null
   if (kind === 'electron' || kind === 'native' || kind === 'webview') {
     const exeRaw = forPlatform(a.exe)
-    if (!exeRaw) errors.push(`app.exe has no entry for platform ${PLATFORM}`)
+    if (!exeRaw) unavailable = unavailable || `app.exe has no entry for platform ${PLATFORM} (this recipe was made for ${Object.keys(a.exe || {}).join(', ') || 'no platform'})`
     const exe = exeRaw ? resolveGlob(expand(exeRaw)) : ''
     const portFileRaw = forPlatform(a.portFile)
     const install = (a.install || []).map(i => ({ from: isAbsolute(i.from) ? i.from : join(root, i.from), to: resolveGlob(expand(forPlatform(i.to) || '')) }))
     for (const i of install) {
       if (!existsSync(i.from)) errors.push(`install source missing: ${i.from}`)
-      if (!i.to) errors.push(`install target has no entry for platform ${PLATFORM}`)
+      if (!i.to) unavailable = unavailable || `install target has no entry for platform ${PLATFORM}`
     }
     if (install.length && kind !== 'native') errors.push(`install is for kind "native"; ${kind} recipes change the app at runtime`)
-    return { ...base, exe, exeName: exe ? basename(exe) : '', portFile: portFileRaw && expand(portFileRaw), install, engine: kind === 'webview' ? a.engine : undefined }
+    return { ...base, exe, exeName: exe ? basename(exe) : '', portFile: portFileRaw && expand(portFileRaw), install, engine: kind === 'webview' ? a.engine : undefined, unavailable }
   }
   if (kind === 'web') {
     const browserRaw = forPlatform(a.browser) || 'auto'
     const exe = browserRaw === 'auto' ? findBrowser() : resolveGlob(expand(browserRaw))
-    if (!exe) errors.push('no Chrome or Edge found; set app.browser to a Chromium-based browser path')
+    const unavailable = exe ? null : 'no Chrome or Edge found; set app.browser to a Chromium-based browser path'
     if (!a.startUrl) errors.push('web recipes need app.startUrl')
     if (!a.matches?.length) errors.push('web recipes need app.matches (URL patterns like "https://example.com/*")')
     const profile = expand(a.profile || join(process.env.LOCALAPPDATA || join(homedir(), '.local', 'share'), 'appmod', 'profiles', basename(root)))
-    return { ...base, exe: exe || '', exeName: exe ? basename(exe) : '', startUrl: a.startUrl, matches: a.matches || [], profile, urlPrefix: base.urlPrefix || new URL(a.startUrl || 'about:blank').origin }
+    return { ...base, exe: exe || '', exeName: exe ? basename(exe) : '', startUrl: a.startUrl, matches: a.matches || [], profile, urlPrefix: base.urlPrefix || new URL(a.startUrl || 'about:blank').origin, unavailable }
   }
   if (kind === 'android') {
     if (!a.package) errors.push('android recipes need app.package (e.g. "com.example.app")')

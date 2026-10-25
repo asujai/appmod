@@ -49,6 +49,7 @@ export function resetFiles(recipe) {
 
 export function startNative(recipe, extraArgs = []) {
   const { exe, args, env } = recipe.app
+  if (recipe.app.unavailable) throw new Error(`cannot start ${recipe.id} here: ${recipe.app.unavailable}`)
   if (!existsSync(exe)) throw new Error(`app not found: ${exe}`)
   const child = spawn(exe, [...args, ...extraArgs], { detached: true, stdio: 'ignore', env: { ...process.env, ...env } })
   child.unref()

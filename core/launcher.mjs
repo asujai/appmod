@@ -218,6 +218,7 @@ function startCommand(recipe, port, { headless = false, extraArgs = [] } = {}) {
 // recipes, the window brought to the front otherwise. Resolves { reused } once the app exits.
 export async function launch(recipe, { bundle, onPage, extraArgs = [], force = false, headless = false, beforeStart, log = makeLogger(recipe.logFile) } = {}) {
   const { app } = recipe
+  if (app.unavailable) throw new Error(`cannot start ${recipe.id} here: ${app.unavailable}`)
   if (!existsSync(app.exe)) throw new Error(`app not found: ${app.exe}`)
   const source = bundle ?? buildBundle(recipe)
 

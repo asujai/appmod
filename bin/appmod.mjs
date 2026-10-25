@@ -200,6 +200,7 @@ Re-run setup after updating appmod.`)
       return
     }
     const recipe = loadRecipe(recipeDir(target))
+    if (recipe.app.unavailable) fail(`cannot analyze ${recipe.id} here: ${recipe.app.unavailable}`)
     mkdirSync(recipe.analysisDir, { recursive: true })
     if (recipe.kind === 'webview') {
       const report = analyzeWebview(recipe.app.exe, recipe.app.engine)
@@ -433,6 +434,7 @@ Re-run setup after updating appmod.`)
       return
     }
     if (recipe.kind === 'native') {
+      if (recipe.app.unavailable) fail(`cannot start ${recipe.id} here: ${recipe.app.unavailable}`)
       // Arguments and env reach only a fresh process; a running single-instance app ignores them.
       if (!flag('force') && isRunning(recipe.app.exeName) && !(await makeRoom(recipe))) {
         fail(`${recipe.app.exeName} is already running. Quit it first, or run launch --restart.`)
