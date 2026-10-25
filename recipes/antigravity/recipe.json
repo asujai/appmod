@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "antigravity",
+  "name": "Antigravity",
+  "tested": null,
+  "app": {
+    "kind": "electron",
+    "exe": {
+      "win32": "%LOCALAPPDATA%/Programs/antigravity/Antigravity.exe"
+    },
+    "pageFilter": { "urlPrefix": "" },
+    "reloadIfLate": true,
+    "reloadDelayMs": 1500
+  },
+  "language": {
+    "code": "tr",
+    "name": "Türkçe",
+    "i18n": { "library": "none", "base": "en", "mode": "override" },
+    "pack": "packs/tr.json",
+    "text": "text/tr.json"
+  },
+  "features": [],
+  "actions": {}
+}
